@@ -67,15 +67,19 @@ const Chrome4App: React.FC<AppComponentProps> = ({ setTitle: setWindowTitle }) =
             setCanGoBack(webview.canGoBack());
             setCanGoForward(webview.canGoForward());
         };
+        const handleCrash = () => {
+            console.error("!!! CHROME 4 WEBVIEW CRASHED !!!");
+            setWindowTitle("Browser Crashed - Chrome 4");
+            setIsLoading(false);
+        };
         
         webview.addEventListener('did-start-loading', handleLoadStart);
         webview.addEventListener('did-stop-loading', handleLoadStop);
-        webview.addEventListener('did-fail-load', handleLoadStop); // Also stop loading on failure
+        webview.addEventListener('did-fail-load', handleLoadStop);
+        webview.addEventListener('crashed', handleCrash);
         
-        // Load initial URL
-        if(webview.getURL() !== DEFAULT_URL) {
-            webview.loadURL(DEFAULT_URL);
-        } else {
+        // Initial state update in case it's already loaded when the listener is attached
+        if (!webview.isLoading()) {
             handleLoadStop();
         }
 
@@ -83,6 +87,7 @@ const Chrome4App: React.FC<AppComponentProps> = ({ setTitle: setWindowTitle }) =
             webview.removeEventListener('did-start-loading', handleLoadStart);
             webview.removeEventListener('did-stop-loading', handleLoadStop);
             webview.removeEventListener('did-fail-load', handleLoadStop);
+            webview.removeEventListener('crashed', handleCrash);
         };
     }, [setWindowTitle]);
 
@@ -124,7 +129,7 @@ const Chrome4App: React.FC<AppComponentProps> = ({ setTitle: setWindowTitle }) =
                 {window.electronAPI ? (
                     React.createElement('webview', {
                         ref: webviewRef,
-                        src: "about:blank",
+                        src: DEFAULT_URL,
                         className: "w-full h-full border-none bg-white",
                         partition: partition,
                         allowpopups: true
