@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Win11 React Gemini Clone (Electron)</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.5.0/css/xterm.css" />
   <style>
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -35,21 +35,6 @@
     .animate-fade-in-fast {
         animation: fade-in-fast 0.1s ease-out forwards;
     }
-    /* Blinking Cursor for Terminal */
-    @keyframes blink-cursor {
-      from, to { background-color: transparent; }
-      50% { background-color: white; }
-    }
-    .blinking-cursor {
-        display: inline-block;
-        width: 8px;
-        height: 1.1em;
-        background-color: white;
-        animation: blink-cursor 1s step-end infinite;
-        position: relative;
-        top: 0.15em;
-        margin-left: 2px;
-    }
   </style>
 <script type="importmap">
 {
@@ -59,7 +44,9 @@
     "react-dom/": "https://esm.sh/react-dom@^19.1.1/",
     "vite": "https://esm.sh/vite@^7.1.2",
     "@google/genai": "https://esm.sh/@google/genai@^1.14.0",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.0.0"
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.0.0",
+    "xterm": "https://esm.sh/xterm@5.5.0",
+    "xterm-addon-fit": "https://esm.sh/xterm-addon-fit@0.9.0"
   }
 }
 </script>

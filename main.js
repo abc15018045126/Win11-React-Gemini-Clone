@@ -254,7 +254,7 @@ wss.on('connection', (ws) => {
 
                 conn.on('ready', () => {
                     ws.send(JSON.stringify({ type: 'status', payload: 'connected' }));
-                    conn.shell((err, stream) => {
+                    conn.shell({ term: 'xterm-256color' }, (err, stream) => {
                         if (err) {
                             ws.send(JSON.stringify({ type: 'error', payload: err.message }));
                             return;
@@ -288,6 +288,11 @@ wss.on('connection', (ws) => {
                 const connection = sshConnections.get(connectionId);
                 if (connection && connection.stream) {
                     connection.stream.write(data.payload);
+                }
+            } else if (data.type === 'resize') {
+                const connection = sshConnections.get(connectionId);
+                if (connection && connection.stream) {
+                    connection.stream.setWindow(data.payload.rows, data.payload.cols);
                 }
             } else if (data.type === 'disconnect') {
                 const connection = sshConnections.get(connectionId);

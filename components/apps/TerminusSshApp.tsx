@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AppComponentProps, AppDefinition } from '../../types';
 import { HyperIcon as TerminusIcon } from '../../constants';
+import { Terminal } from 'xterm';
+import { FitAddon } from 'xterm-addon-fit';
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
@@ -9,13 +11,12 @@ const TerminusSshApp: React.FC<AppComponentProps> = ({ setTitle }) => {
     const [host, setHost] = useState('');
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
-    const [output, setOutput] = useState('');
-    const [input, setInput] = useState('');
     const [errorMsg, setErrorMsg] = useState('');
 
     const ws = useRef<WebSocket | null>(null);
-    const terminalBodyRef = useRef<HTMLDivElement>(null);
-    const inputRef = useRef<HTMLInputElement>(null);
+    const terminalRef = useRef<HTMLDivElement>(null);
+    const term = useRef<Terminal | null>(null);
+    const fitAddon = useRef(new FitAddon());
 
     useEffect(() => {
         setTitle(`Terminus SSH - ${status}`);
@@ -31,31 +32,68 @@ const TerminusSshApp: React.FC<AppComponentProps> = ({ setTitle }) => {
             })
             .catch(err => {
                 console.error("Couldn't fetch OS username:", err);
-                setOutput("Could not get local username. Please enter it manually.\n");
                 setHost('127.0.0.1');
             });
     }, []);
-    
-    // Auto-scroll terminal
-    useEffect(() => {
-        if (terminalBodyRef.current) {
-            terminalBodyRef.current.scrollTop = terminalBodyRef.current.scrollHeight;
-        }
-    }, [output]);
-
-    // Auto-focus input
-    useEffect(() => {
-        if (status === 'connected') {
-            inputRef.current?.focus();
-        }
-    }, [status]);
     
     // Cleanup WebSocket on unmount
     useEffect(() => {
         return () => {
             ws.current?.close();
+            term.current?.dispose();
         };
     }, []);
+    
+    // Initialize Terminal on connect
+    useEffect(() => {
+        if (status === 'connected' && terminalRef.current && !term.current) {
+            const terminal = new Terminal({
+                cursorBlink: true,
+                theme: {
+                    background: '#1e1e1e',
+                    foreground: '#d4d4d4',
+                    cursor: '#d4d4d4',
+                    selectionBackground: '#264f78',
+                },
+                fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+                fontSize: 14,
+                allowProposedApi: true,
+            });
+            term.current = terminal;
+
+            terminal.loadAddon(fitAddon.current);
+            terminal.open(terminalRef.current);
+            fitAddon.current.fit();
+            terminal.focus();
+
+            terminal.onData(data => {
+                ws.current?.send(JSON.stringify({ type: 'data', payload: data }));
+            });
+            
+            const resizeObserver = new ResizeObserver(() => {
+                try {
+                    fitAddon.current.fit();
+                } catch(e) { /* ignore */ }
+            });
+            resizeObserver.observe(terminalRef.current);
+
+            return () => {
+                resizeObserver.disconnect();
+                terminal.dispose();
+                term.current = null;
+            };
+        }
+    }, [status]);
+    
+     useEffect(() => {
+        if (status === 'connected' && term.current) {
+            const dims = fitAddon.current.proposeDimensions();
+            if (dims && dims.cols && dims.rows) {
+                 ws.current?.send(JSON.stringify({ type: 'resize', payload: { cols: dims.cols, rows: dims.rows } }));
+            }
+        }
+    }, [status]);
+
 
     const handleConnect = useCallback(() => {
         if (!host || !username || !password) {
@@ -65,11 +103,12 @@ const TerminusSshApp: React.FC<AppComponentProps> = ({ setTitle }) => {
 
         setStatus('connecting');
         setErrorMsg('');
-        setOutput(`Connecting to ${username}@${host}...\n`);
+        term.current?.reset();
 
         ws.current = new WebSocket('ws://localhost:3002');
 
         ws.current.onopen = () => {
+            term.current?.write(`Connecting to ${username}@${host}...\r\n`);
             const connectPayload = {
                 type: 'connect',
                 payload: { host, username, password },
@@ -83,16 +122,16 @@ const TerminusSshApp: React.FC<AppComponentProps> = ({ setTitle }) => {
                 case 'status':
                     if (message.payload === 'connected') {
                         setStatus('connected');
-                        setPassword(''); // Clear password after successful connect
+                        setPassword('');
                     } else {
                         setStatus('disconnected');
                     }
                     break;
                 case 'data':
-                    setOutput(prev => prev + message.payload);
+                    term.current?.write(message.payload);
                     break;
                 case 'error':
-                    setOutput(prev => prev + `\nError: ${message.payload}\n`);
+                    term.current?.write(`\r\n\x1b[31mError: ${message.payload}\x1b[0m\r\n`);
                     setErrorMsg(message.payload);
                     setStatus('error');
                     ws.current?.close();
@@ -102,14 +141,14 @@ const TerminusSshApp: React.FC<AppComponentProps> = ({ setTitle }) => {
         
         ws.current.onerror = (event) => {
              const error = 'WebSocket connection failed. Is the backend server running?';
-             setOutput(prev => prev + error + '\n');
+             term.current?.write(`\r\n\x1b[31m${error}\x1b[0m\r\n`);
              setErrorMsg(error);
              setStatus('error');
         };
 
         ws.current.onclose = () => {
             if (status !== 'error') {
-                 setOutput(prev => prev + '\nConnection closed.\n');
+                 term.current?.write('\r\n\x1b[33mConnection closed.\x1b[0m\r\n');
                  setStatus('disconnected');
             }
         };
@@ -119,18 +158,6 @@ const TerminusSshApp: React.FC<AppComponentProps> = ({ setTitle }) => {
     const handleDisconnect = () => {
         ws.current?.send(JSON.stringify({ type: 'disconnect' }));
         ws.current?.close();
-    };
-
-    const handleProcessCommand = () => {
-        if (!ws.current || ws.current.readyState !== WebSocket.OPEN) return;
-        ws.current.send(JSON.stringify({ type: 'data', payload: input + '\n' }));
-        setInput('');
-    };
-
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter') {
-            handleProcessCommand();
-        }
     };
     
     return (
@@ -162,28 +189,9 @@ const TerminusSshApp: React.FC<AppComponentProps> = ({ setTitle }) => {
                 </div>
             ) : (
                 // --- Terminal View ---
-                <div className="flex-grow flex flex-col p-2 overflow-hidden" onClick={() => inputRef.current?.focus()}>
-                    <div ref={terminalBodyRef} className="flex-grow overflow-y-auto custom-scrollbar pr-2">
-                        <pre className="whitespace-pre-wrap break-words">{output}</pre>
-                        <div className="flex items-center">
-                            <span className="flex-shrink-0">{input}</span>
-                            <span className="blinking-cursor"></span>
-                        </div>
-                    </div>
-                     {/* Hidden input to capture keyboard events */}
-                    <input
-                        ref={inputRef}
-                        type="text"
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        className="absolute w-0 h-0 p-0 m-0 border-0 opacity-0"
-                        autoComplete="off"
-                        autoCapitalize="off"
-                        autoCorrect="off"
-                        spellCheck="false"
-                    />
-                    <button onClick={handleDisconnect} className="absolute bottom-2 right-2 text-xs bg-red-600 hover:bg-red-700 px-2 py-1 rounded">
+                <div className="flex-grow flex flex-col overflow-hidden relative">
+                    <div ref={terminalRef} className="w-full h-full p-2" />
+                    <button onClick={handleDisconnect} className="absolute bottom-2 right-2 text-xs bg-red-600 hover:bg-red-700 px-2 py-1 rounded z-10">
                         Disconnect
                     </button>
                 </div>
