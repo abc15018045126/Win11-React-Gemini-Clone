@@ -1,7 +1,8 @@
 
 
 
-const { app, BrowserWindow } = require('electron');
+
+const { app, BrowserWindow, session } = require('electron');
 const path = require('path');
 require('dotenv').config();
 
@@ -52,6 +53,16 @@ app.whenReady().then(() => {
     // Apply header stripping to enable loading restricted sites in webviews
     setupHeaderStripping('persist:chrome3');
     setupHeaderStripping('persist:chrome4'); // <-- Apply fix to Chrome 4
+
+    // Add preload script for Chrome 4 to defeat frame-busting JS
+    try {
+        const chrome4Session = session.fromPartition('persist:chrome4');
+        const frameBusterPath = path.join(__dirname, 'frame-buster.js');
+        chrome4Session.setPreloads([frameBusterPath]);
+        console.log(`[Main] Frame-buster preload script set for partition 'persist:chrome4'`);
+    } catch (error) {
+        console.error(`[Main] Failed to set preload script for Chrome 4:`, error);
+    }
 
     createWindow();
 
