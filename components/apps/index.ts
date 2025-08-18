@@ -1,7 +1,4 @@
 
-
-
-
 import type { AppDefinition } from '../../types';
 
 import { appDefinition as aboutAppDefinition } from './AboutApp';

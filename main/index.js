@@ -1,9 +1,4 @@
 
-
-
-
-
-
 const { app, BrowserWindow, session } = require('electron');
 const path = require('path');
 require('dotenv').config();

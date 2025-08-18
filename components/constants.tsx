@@ -1,6 +1,4 @@
 
-
-
 import React from 'react';
 import { AppIconProps } from './types';
 
