@@ -39,7 +39,7 @@ interface WebViewElement extends HTMLElement {
 
 const isUrl = (str: string) => /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([/\w .-]*)*\/?$/.test(str);
 
-const Chrome3App: React.FC<AppComponentProps> = ({ setTitle: setWindowTitle, appInstanceId, openApp }) => {
+const Chrome3App: React.FC<AppComponentProps> = ({ setTitle: setWindowTitle, appInstanceId }) => {
     const [url, setUrl] = useState('https://www.google.com');
     const [inputValue, setInputValue] = useState(url);
     const [isLoading, setIsLoading] = useState(true);
@@ -47,17 +47,6 @@ const Chrome3App: React.FC<AppComponentProps> = ({ setTitle: setWindowTitle, app
     const [canGoForward, setCanGoForward] = useState(false);
     const webviewRef = useRef<WebViewElement | null>(null);
     const partition = `persist:browser3_${appInstanceId}`;
-
-    // On mount, silently launch the proxy backend
-    useEffect(() => {
-        if (openApp) {
-            console.log("Launching headless proxy for Chrome 3...");
-            // Use the dedicated backend app definition ID
-            openApp('chrome3-proxy-backend', { args: ['--headless'] });
-        } else {
-            console.error("openApp function is not available. Cannot launch proxy backend.");
-        }
-    }, [openApp]);
     
     // Setup proxy and event listeners for the webview
     useEffect(() => {
@@ -66,8 +55,6 @@ const Chrome3App: React.FC<AppComponentProps> = ({ setTitle: setWindowTitle, app
 
         const setupProxy = async () => {
              try {
-                // Wait a moment for the proxy server to start
-                await new Promise(resolve => setTimeout(resolve, 500));
                 await window.electronAPI?.setProxyForSession(partition, {
                     proxyRules: "socks5://127.0.0.1:1080",
                 });
@@ -75,7 +62,6 @@ const Chrome3App: React.FC<AppComponentProps> = ({ setTitle: setWindowTitle, app
                 webview.loadURL(url); // Load initial URL after proxy is set
             } catch (e) {
                 console.error("Failed to set proxy:", e);
-                // Optionally, show an error to the user in the webview
             }
         };
 
@@ -151,16 +137,6 @@ const Chrome3App: React.FC<AppComponentProps> = ({ setTitle: setWindowTitle, app
             </div>
         </div>
     );
-};
-
-// Hidden app definition for the headless proxy backend process
-export const chrome3ProxyBackendDefinition: AppDefinition = {
-  id: 'chrome3-proxy-backend',
-  name: 'Chrome 3 Proxy Backend',
-  icon: () => null, // No icon, not user-facing
-  component: () => null, // No component, not user-facing
-  isExternal: true, 
-  externalPath: 'components/apps/chrome3',
 };
 
 // Main, user-facing app definition for the browser UI

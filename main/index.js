@@ -8,6 +8,7 @@ const { initializeIpcHandlers } = require('./ipc');
 const { startApiServer } = require('./api');
 const { startTerminusServer } = require('./ws-terminus');
 const { startSftpServer } = require('./ws-sftp');
+const { startChrome3Proxy } = require('./proxy-chrome3'); // Import the new proxy server
 
 function createWindow() {
     const mainWindow = new BrowserWindow({
@@ -20,6 +21,7 @@ function createWindow() {
             preload: path.join(__dirname, '..', 'preload.js'),
             contextIsolation: true,
             nodeIntegration: false,
+            webviewTag: true, // Enable <webview> tag for apps like Chrome 3
         },
         titleBarStyle: 'hidden',
         trafficLightPosition: { x: 15, y: 15 },
@@ -41,6 +43,7 @@ app.whenReady().then(() => {
     startApiServer();
     startTerminusServer();
     startSftpServer();
+    startChrome3Proxy(); // Start the proxy server on application launch
 
     createWindow();
 
