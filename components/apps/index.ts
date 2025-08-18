@@ -8,6 +8,7 @@ import { appDefinition as notebookAppDefinition } from './NotebookApp';
 import { appDefinition as settingsAppDefinition } from './SettingsApp';
 import { appDefinition as chromeAppDefinition } from './ChromeApp';
 import { appDefinition as chrome2AppDefinition } from './Chrome2App';
+import { appDefinition as chrome3AppDefinition } from './Chrome3App';
 import { appDefinition as terminusAppDefinition } from './TerminusApp';
 import { appDefinition as terminusSshAppDefinition } from './TerminusSshApp';
 import { appDefinition as sftpAppDefinition } from './SFTPApp';
@@ -29,6 +30,7 @@ export const APP_DEFINITIONS: AppDefinition[] = [
   terminusSshAppDefinition, // The original multi-host terminal
   chromeAppDefinition,
   chrome2AppDefinition,
+  chrome3AppDefinition,
   fileExplorerAppDefinition,
   geminiChatAppDefinition,
   hyperAppDefinition,
