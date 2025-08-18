@@ -1,5 +1,5 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
-const path = require('path');
+const path =require('path');
 const fs = require('fs');
 const os = require('os');
 const { spawn } = require('child_process');
@@ -19,6 +19,7 @@ const SFTP_WS_PORT = 3003;
 
 // --- Filesystem Setup ---
 const FS_ROOT = __dirname;
+const SFTP_TEMP_DIR = path.join(FS_ROOT, 'sftp_temp');
 
 function resolvePath(relativePath) {
   // Ensure the resolved path does not go "above" the FS_ROOT. This is a security measure.
@@ -38,6 +39,10 @@ function setupInitialFilesystem() {
             fs.mkdirSync(dirPath, { recursive: true });
         }
     });
+    // Create temp directory for SFTP downloads
+    if (!fs.existsSync(SFTP_TEMP_DIR)) {
+        fs.mkdirSync(SFTP_TEMP_DIR);
+    }
     const desktopPath = path.join(FS_ROOT, 'Desktop');
     const defaultApps = [
         { appId: 'appStore', name: 'App Store' },
@@ -319,6 +324,7 @@ wss.on('connection', (ws) => {
 // --- SFTP WebSocket Server ---
 const sftpWss = new WebSocketServer({ port: SFTP_WS_PORT });
 const sftpConnections = new Map();
+const sftpTrackedFiles = new Map(); // For auto-upload feature
 
 sftpWss.on('connection', (ws) => {
     const connectionId = `sftp-${Math.random().toString(36).substring(2, 9)}`;
@@ -368,6 +374,41 @@ sftpWss.on('connection', (ws) => {
                     }));
                     ws.send(JSON.stringify({ type: 'list', payload: { path: reqPath, items } }));
                 });
+            } else if (data.type === 'download_and_track' && connDetails?.sftp) {
+                const sftp = connDetails.sftp;
+                const remotePath = data.payload;
+                const localFileName = path.basename(remotePath);
+                const localPath = path.join(SFTP_TEMP_DIR, `${connectionId}-${Date.now()}-${localFileName}`);
+                
+                sftp.fastGet(remotePath, localPath, (err) => {
+                    if (err) {
+                         ws.send(JSON.stringify({ type: 'error', payload: `Download failed: ${err.message}` }));
+                         return;
+                    }
+                    ws.send(JSON.stringify({ type: 'download_complete', payload: { localPath: localPath.replace(__dirname, '').replace(/\\/g, '/'), remotePath }}));
+                    
+                    const watcher = fs.watch(localPath, (eventType) => {
+                        if (eventType === 'change') {
+                            const trackInfo = sftpTrackedFiles.get(localPath);
+                            if (!trackInfo) return;
+                            
+                            clearTimeout(trackInfo.debounceTimeout);
+                            trackInfo.debounceTimeout = setTimeout(() => {
+                                ws.send(JSON.stringify({ type: 'upload_status', payload: { status: 'started', remotePath } }));
+                                sftp.fastPut(localPath, remotePath, (uploadErr) => {
+                                    if (uploadErr) {
+                                        ws.send(JSON.stringify({ type: 'upload_status', payload: { status: 'error', remotePath, error: uploadErr.message } }));
+                                    } else {
+                                        ws.send(JSON.stringify({ type: 'upload_status', payload: { status: 'complete', remotePath } }));
+                                    }
+                                });
+                            }, 500);
+                        }
+                    });
+                    
+                    sftpTrackedFiles.set(localPath, { ws, sftp, remotePath, connectionId, watcher, debounceTimeout: null });
+                });
+
             } else if (data.type === 'disconnect' && connDetails?.ssh) {
                 connDetails.ssh.end();
             }
@@ -384,6 +425,16 @@ sftpWss.on('connection', (ws) => {
             connDetails.ssh.end();
         }
         sftpConnections.delete(connectionId);
+        
+        // Cleanup tracked files and watchers for this connection
+        for (const [localPath, trackInfo] of sftpTrackedFiles.entries()) {
+            if (trackInfo.connectionId === connectionId) {
+                trackInfo.watcher.close();
+                clearTimeout(trackInfo.debounceTimeout);
+                fs.promises.unlink(localPath).catch(err => console.error(`Failed to delete temp file ${localPath}:`, err));
+                sftpTrackedFiles.delete(localPath);
+            }
+        }
     });
 });
 
