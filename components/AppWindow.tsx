@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { OpenApp, ClipboardItem, FilesystemItem } from '../types';
 import { CloseIcon, MinimizeIcon, MaximizeIcon, RestoreIcon, TASKBAR_HEIGHT } from '../constants';
+import { useTheme } from './theme';
 
 interface AppWindowProps {
   app: OpenApp;
@@ -44,6 +45,7 @@ const AppWindow: React.FC<AppWindowProps> = ({
   const [dragStartPos, setDragStartPos] = useState({ x: 0, y: 0 }); // Mouse position at drag start
   const [initialWinPos, setInitialWinPos] = useState({ x: 0, y: 0 }); // Window position at drag start
   const windowRef = useRef<HTMLDivElement>(null);
+  const { theme } = useTheme();
 
   const handleMouseDownHeader = (e: React.MouseEvent<HTMLDivElement>) => {
     if (app.isMaximized) return; // Don't drag if maximized
@@ -95,10 +97,12 @@ const AppWindow: React.FC<AppWindowProps> = ({
   const AppComponent = app.component;
 
   const windowClasses = `
-    fixed flex flex-col bg-black/80 backdrop-blur-xl shadow-2xl rounded-lg overflow-hidden
-    border ${isActive ? 'border-blue-500/80' : 'border-zinc-800/50'}
+    fixed flex flex-col shadow-2xl rounded-lg overflow-hidden
+    border
     transition-opacity duration-150 ease-in-out
     ${app.isMinimized ? 'opacity-0 pointer-events-none' : 'opacity-100'}
+    ${theme.appWindow.background}
+    ${isActive ? theme.appWindow.borderActive : theme.appWindow.border}
   `;
 
   return (
@@ -116,13 +120,13 @@ const AppWindow: React.FC<AppWindowProps> = ({
       onMouseDown={onFocus}
     >
       <div
-        className={`flex items-center justify-between h-8 px-3 ${app.isMaximized ? '' : 'cursor-grab'} select-none bg-black/50`}
+        className={`flex items-center justify-between h-8 px-3 ${app.isMaximized ? '' : 'cursor-grab'} select-none ${theme.appWindow.header} ${theme.appWindow.textColor}`}
         onMouseDown={handleMouseDownHeader}
         onDoubleClick={onMaximize}
       >
         <div className="flex items-center space-x-2">
-          <app.icon className="w-4 h-4 text-zinc-300" isSmall />
-          <span className="text-xs font-medium text-zinc-200 truncate">{app.title}</span>
+          <app.icon className="w-4 h-4" isSmall />
+          <span className="text-xs font-medium truncate">{app.title}</span>
         </div>
         <div className="flex items-center space-x-1">
           <button onClick={onMinimize} className="p-1.5 hover:bg-white/20 rounded-sm" title="Minimize"><MinimizeIcon /></button>
@@ -133,13 +137,13 @@ const AppWindow: React.FC<AppWindowProps> = ({
         </div>
       </div>
 
-      <div className="flex-grow overflow-auto custom-scrollbar bg-black/60">
+      <div className={`flex-grow overflow-auto custom-scrollbar ${theme.appWindow.background}`}>
         <AppComponent 
             appInstanceId={app.instanceId} 
             onClose={onClose}
             setTitle={(newTitle) => onSetTitle(newTitle)}
-            wallpaper={app.id === 'settings' ? (desktopRef.current?.style.backgroundImage || '').replace(/url\(['"]?(.*?)['"]?\)/i, '$1') : undefined}
-            onWallpaperChange={app.id === 'settings' ? onWallpaperChange : undefined}
+            wallpaper={app.id === 'themes' ? theme.wallpaper : undefined}
+            onWallpaperChange={app.id === 'themes' ? onWallpaperChange : undefined}
             openApp={openApp}
             initialData={app.initialData}
             clipboard={clipboard}

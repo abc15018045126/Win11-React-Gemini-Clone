@@ -12,6 +12,7 @@ import { appDefinition as chrome2AppDefinition } from './Chrome2';
 import { appDefinition as terminusAppDefinition } from './Terminus';
 import { appDefinition as sftpAppDefinition } from './SFTP';
 import { appDefinition as appStoreAppDefinition } from './AppStore';
+import { appDefinition as themeAppDefinition } from './ThemeApp';
 
 /**
  * The master list of all applications available in the OS.
@@ -22,6 +23,7 @@ import { appDefinition as appStoreAppDefinition } from './AppStore';
  */
 export const APP_DEFINITIONS: AppDefinition[] = [
   appStoreAppDefinition,
+  themeAppDefinition,
   chrome2AppDefinition,
   sftpAppDefinition,
   terminusAppDefinition,

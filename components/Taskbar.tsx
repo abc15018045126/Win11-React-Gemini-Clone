@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { OpenApp, AppDefinition } from '../types';
 import { StartIcon, TASKBAR_HEIGHT } from '../constants';
 import { APP_DEFINITIONS } from './apps';
+import { useTheme } from './theme';
 
 
 interface TaskbarProps {
@@ -14,6 +15,7 @@ interface TaskbarProps {
 
 const Taskbar: React.FC<TaskbarProps> = ({ openApps, activeAppInstanceId, onToggleStartMenu, onAppIconClick }) => {
   const [currentTime, setCurrentTime] = useState(new Date());
+  const { theme } = useTheme();
 
   useEffect(() => {
     const timerId = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -40,7 +42,7 @@ const Taskbar: React.FC<TaskbarProps> = ({ openApps, activeAppInstanceId, onTogg
 
   return (
     <div
-      className="h-[${TASKBAR_HEIGHT}px] bg-black/80 backdrop-blur-xl text-white flex items-center justify-between px-4 fixed bottom-0 left-0 right-0 z-50"
+      className={`flex items-center justify-between px-4 fixed bottom-0 left-0 right-0 z-50 ${theme.taskbar.background} ${theme.taskbar.textColor}`}
       style={{ height: `${TASKBAR_HEIGHT}px` }}
     >
       {/* Centered Icons */}
@@ -48,7 +50,7 @@ const Taskbar: React.FC<TaskbarProps> = ({ openApps, activeAppInstanceId, onTogg
         <div className="flex items-center space-x-2 h-full">
           <button
             onClick={onToggleStartMenu}
-            className="taskbar-start-button p-2 hover:bg-white/20 rounded h-full flex items-center"
+            className={`taskbar-start-button p-2 rounded h-full flex items-center ${theme.taskbar.buttonHover}`}
             aria-label="Start Menu"
           >
             <StartIcon className="w-5 h-5 text-blue-400" />
@@ -64,14 +66,14 @@ const Taskbar: React.FC<TaskbarProps> = ({ openApps, activeAppInstanceId, onTogg
                 key={appDef.id}
                 onClick={() => onAppIconClick(appDef.id, instance?.instanceId)}
                 className={`p-2 rounded h-[calc(100%-8px)] flex items-center relative transition-colors duration-150 ease-in-out
-                            ${isActive ? 'bg-white/30' : 'hover:bg-white/20'}
+                            ${isActive ? theme.taskbar.activeButton : theme.taskbar.buttonHover}
                             ${isMinimized ? 'opacity-70' : ''}`}
                 title={appDef.name}
               >
                 <appDef.icon className="w-5 h-5" isSmall />
                 {isOpen && (
                   <span className={`absolute bottom-0 left-1/2 transform -translate-x-1/2 w-4 h-1 rounded-t-sm 
-                                  ${isActive ? 'bg-blue-400' : isMinimized ? 'bg-gray-400' : 'bg-gray-500'}`}></span>
+                                  ${isActive ? theme.taskbar.activeIndicator : isMinimized ? 'bg-gray-400' : 'bg-gray-500'}`}></span>
                 )}
               </button>
             );

@@ -8,21 +8,35 @@ import Taskbar from './components/Taskbar';
 import StartMenu from './components/StartMenu';
 import AppWindow from './components/AppWindow';
 import Desktop from './components/Desktop';
-
-const DEFAULT_WALLPAPER_URL = "https://images.unsplash.com/photo-1538438253629-5777598687b4?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1920&q=80&blur=10"; // A nice blurred abstract wallpaper
+import { ThemeContext, themes } from './components/theme';
 
 const App: React.FC = () => {
   const [openApps, setOpenApps] = useState<OpenApp[]>([]);
   const [activeAppInstanceId, setActiveAppInstanceId] = useState<string | null>(null);
   const [nextZIndex, setNextZIndex] = useState<number>(10);
   const [isStartMenuOpen, setIsStartMenuOpen] = useState<boolean>(false);
-  const [wallpaper, setWallpaper] = useState<string>(DEFAULT_WALLPAPER_URL);
   const [clipboard, setClipboard] = useState<ClipboardItem | null>(null);
   const desktopRef = useRef<HTMLDivElement>(null);
   
+  // --- Theme State ---
+  const [currentThemeId, setCurrentThemeId] = useState<'default' | 'light'>('default');
+  const theme = themes[currentThemeId];
+
   // A simple way to trigger refresh in filesystem-aware components
   const [refreshId, setRefreshId] = useState(0);
   const triggerRefresh = () => setRefreshId(id => id + 1);
+  
+  const handleThemeChange = (themeId: 'default' | 'light') => {
+    setCurrentThemeId(themeId);
+  };
+  
+  const handleWallpaperChange = useCallback((newWallpaperUrl: string) => {
+    // This is now handled by the ThemeApp, which changes the entire theme object.
+    // This function is kept for compatibility if another app (like Settings) needs to change it.
+    // For a simple wallpaper change, we'd need to create a custom theme object.
+    // For now, we recommend using the Themes app.
+    console.log("Direct wallpaper change requested to:", newWallpaperUrl, "Use the Themes app for full effect.");
+  }, []);
 
   const getNextPosition = (appWidth: number, appHeight: number) => {
     const desktopWidth = desktopRef.current?.clientWidth || window.innerWidth;
@@ -82,7 +96,7 @@ const App: React.FC = () => {
       isMinimized: false,
       isMaximized: false,
       title: appDef.name,
-      initialData: {...initialData, refreshId}, // Pass refreshId
+      initialData: {...initialData, refreshId, triggerRefresh}, // Pass refreshId and trigger
     };
 
     setOpenApps(prev => [...prev, newApp]);
@@ -183,7 +197,6 @@ const App: React.FC = () => {
   }, []);
 
   const toggleStartMenu = useCallback(() => setIsStartMenuOpen(prev => !prev), []);
-  const handleWallpaperChange = useCallback((newWallpaperUrl: string) => setWallpaper(newWallpaperUrl), []);
   
   // --- Filesystem Operations ---
   const handleCopy = useCallback((item: FilesystemItem) => {
@@ -220,71 +233,73 @@ const App: React.FC = () => {
 
 
   return (
-    <div 
-      ref={desktopRef}
-      className="h-screen w-screen flex flex-col bg-cover bg-center" 
-      style={{ backgroundImage: `url(${wallpaper})` }}
-    >
-      <div className="flex-grow relative overflow-hidden">
-        <Desktop 
-            openApp={openApp} 
-            clipboard={clipboard} 
-            handleCopy={handleCopy}
-            handleCut={handleCut}
-            handlePaste={handlePaste}
-            key={refreshId} // Force remount on refresh
-        />
-        {openApps.filter(app => !app.isMinimized).map(app => (
-          <AppWindow
-            key={app.instanceId}
-            app={{...app, initialData: {...app.initialData, refreshId, triggerRefresh}}}
-            onClose={() => closeApp(app.instanceId)}
-            onMinimize={() => toggleMinimizeApp(app.instanceId)}
-            onMaximize={() => toggleMaximizeApp(app.instanceId)}
-            onFocus={() => focusApp(app.instanceId)}
-            onDrag={updateAppPosition}
-            onResize={updateAppSize}
-            isActive={app.instanceId === activeAppInstanceId}
-            desktopRef={desktopRef}
-            onSetTitle={(newTitle) => updateAppTitle(app.instanceId, newTitle)}
-            onWallpaperChange={handleWallpaperChange}
-            openApp={openApp}
-            clipboard={clipboard}
-            handleCopy={handleCopy}
-            handleCut={handleCut}
-            handlePaste={handlePaste}
+    <ThemeContext.Provider value={{ theme, setTheme: handleThemeChange }}>
+      <div 
+        ref={desktopRef}
+        className="h-screen w-screen flex flex-col bg-cover bg-center" 
+        style={{ backgroundImage: `url(${theme.wallpaper})` }}
+      >
+        <div className="flex-grow relative overflow-hidden">
+          <Desktop 
+              openApp={openApp} 
+              clipboard={clipboard} 
+              handleCopy={handleCopy}
+              handleCut={handleCut}
+              handlePaste={handlePaste}
+              key={refreshId} // Force remount on refresh
           />
-        ))}
-      </div>
+          {openApps.filter(app => !app.isMinimized).map(app => (
+            <AppWindow
+              key={app.instanceId}
+              app={{...app, initialData: {...app.initialData, refreshId, triggerRefresh}}}
+              onClose={() => closeApp(app.instanceId)}
+              onMinimize={() => toggleMinimizeApp(app.instanceId)}
+              onMaximize={() => toggleMaximizeApp(app.instanceId)}
+              onFocus={() => focusApp(app.instanceId)}
+              onDrag={updateAppPosition}
+              onResize={updateAppSize}
+              isActive={app.instanceId === activeAppInstanceId}
+              desktopRef={desktopRef}
+              onSetTitle={(newTitle) => updateAppTitle(app.instanceId, newTitle)}
+              onWallpaperChange={handleWallpaperChange}
+              openApp={openApp}
+              clipboard={clipboard}
+              handleCopy={handleCopy}
+              handleCut={handleCut}
+              handlePaste={handlePaste}
+            />
+          ))}
+        </div>
 
-      {isStartMenuOpen && (
-        <StartMenu
-          apps={APP_DEFINITIONS}
-          onOpenApp={openApp}
-          onClose={() => setIsStartMenuOpen(false)}
+        {isStartMenuOpen && (
+          <StartMenu
+            apps={APP_DEFINITIONS}
+            onOpenApp={openApp}
+            onClose={() => setIsStartMenuOpen(false)}
+          />
+        )}
+
+        <Taskbar
+          openApps={openApps}
+          activeAppInstanceId={activeAppInstanceId}
+          onToggleStartMenu={toggleStartMenu}
+          onAppIconClick={(appId, instanceId) => {
+            if (instanceId) {
+              const app = openApps.find(a => a.instanceId === instanceId);
+              if (app?.isMinimized) {
+                  toggleMinimizeApp(instanceId);
+              } else if (activeAppInstanceId !== instanceId) {
+                  focusApp(instanceId);
+              } else {
+                  toggleMinimizeApp(instanceId);
+              }
+            } else {
+              openApp(appId);
+            }
+          }}
         />
-      )}
-
-      <Taskbar
-        openApps={openApps}
-        activeAppInstanceId={activeAppInstanceId}
-        onToggleStartMenu={toggleStartMenu}
-        onAppIconClick={(appId, instanceId) => {
-          if (instanceId) {
-             const app = openApps.find(a => a.instanceId === instanceId);
-             if (app?.isMinimized) {
-                toggleMinimizeApp(instanceId);
-             } else if (activeAppInstanceId !== instanceId) {
-                focusApp(instanceId);
-             } else {
-                toggleMinimizeApp(instanceId);
-             }
-          } else {
-            openApp(appId);
-          }
-        }}
-      />
-    </div>
+      </div>
+    </ThemeContext.Provider>
   );
 };
 

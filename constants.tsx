@@ -106,6 +106,12 @@ export const RefreshIcon: React.FC<AppIconProps> = ({ className = "w-6 h-6", isS
   </svg>
 );
 
+export const ThemeIcon: React.FC<AppIconProps> = ({ className = "w-6 h-6", isSmall }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={isSmall ? "w-5 h-5" : className}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.998 15.998 0 011.622-3.385m5.043.025a15.998 15.998 0 001.622-3.385m3.388 1.62a15.998 15.998 0 00-1.622 3.385m-5.043-.025a15.998 15.998 0 01-3.388 1.622m0-11.218a15.998 15.998 0 013.388 1.62M15 7.5l-3 3m0 0l-3-3m3 3v11.25m6-2.25h-5.25M7.5 15h5.25" />
+    </svg>
+);
+
 
 // --- File Explorer Icons ---
 export const FolderIcon: React.FC<AppIconProps> = ({ className = "w-12 h-12", isSmall }) => (

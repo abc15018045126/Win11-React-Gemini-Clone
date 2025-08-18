@@ -73,6 +73,33 @@ export interface ChatMessage {
   isLoading?: boolean;
 }
 
+export interface Theme {
+  id: string;
+  name: string;
+  wallpaper: string;
+  taskbar: {
+    background: string;
+    buttonHover: string;
+    activeButton: string;
+    activeIndicator: string;
+    textColor: string;
+  };
+  startMenu: {
+    background: string;
+    searchBar: string;
+    buttonHover: string;
+    textColor: string;
+    pinnedButton: string;
+  };
+  appWindow: {
+    header: string;
+    background: string;
+    border: string;
+    borderActive: string;
+    textColor: string;
+  };
+}
+
 // --- Electron API Bridge Types ---
 export interface IElectronAPI {
   getApiKey: () => Promise<string | undefined>;
