@@ -136,7 +136,7 @@ const Chrome3App: React.FC<AppComponentProps> = ({ setTitle: setWindowTitle, app
                         src: "about:blank",
                         className: "w-full h-full border-none bg-white",
                         partition: partition,
-                        allowpopups: "true"
+                        allowpopups: true
                     })
                 ) : (
                     <div className="w-full h-full flex items-center justify-center bg-zinc-900 text-zinc-400">

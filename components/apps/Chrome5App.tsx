@@ -132,7 +132,7 @@ const Chrome5App: React.FC<AppComponentProps> = ({ setTitle: setWindowTitle }) =
                         src: DEFAULT_URL,
                         className: "w-full h-full border-none bg-white",
                         partition: partition,
-                        allowpopups: "true"
+                        allowpopups: true
                     })
                 ) : (
                     <div className="w-full h-full flex items-center justify-center bg-zinc-900 text-zinc-400">
