@@ -138,6 +138,18 @@ function startSftpServer() {
                         sendSuccess(`Renamed ${item.name} to ${newName}`, path.posix.dirname(item.path), false);
                     });
 
+                } else if (data.type === 'save_content' && sftp) {
+                    const { path: reqPath, content } = data.payload;
+                    const writeStream = sftp.createWriteStream(reqPath);
+                    
+                    writeStream.on('error', (err) => handleSftpError(err, 'save content to', reqPath));
+                    
+                    writeStream.on('finish', () => {
+                        ws.send(JSON.stringify({ type: 'operation_success', payload: { message: `Saved ${path.posix.basename(reqPath)} successfully.` }}));
+                    });
+                    
+                    writeStream.end(content, 'utf8');
+
                 } else if (data.type === 'disconnect' && connDetails?.ssh) {
                     connDetails.ssh.end();
                 }

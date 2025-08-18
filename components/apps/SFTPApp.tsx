@@ -109,6 +109,29 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
             navigateTo(parentPath);
         }
     };
+
+    // --- File Interaction ---
+    const handleOpenFileInNotebook = useCallback((remotePath: string, content: string) => {
+        if (!openApp) return;
+
+        const onSave = (newContent: string) => {
+            if (ws.current?.readyState === WebSocket.OPEN) {
+                setStatusMessage(`Saving ${remotePath}...`);
+                ws.current.send(JSON.stringify({
+                    type: 'save_content',
+                    payload: { path: remotePath, content: newContent }
+                }));
+            }
+        };
+
+        setStatusMessage(`Opening ${remotePath} in Notebook...`);
+        openApp('notebook', {
+            fileName: pathHelper.basename(remotePath),
+            content: content,
+            filePath: remotePath,
+            onSave: onSave,
+        });
+    }, [openApp]);
     
     // --- Connection Handling ---
     const handleConnect = useCallback(() => {
@@ -172,21 +195,9 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
                     break;
             }
         };
-    }, [host, port, username, password, status, currentPath, fetchItems, errorMsg]);
+    }, [host, port, username, password, status, currentPath, fetchItems, errorMsg, handleOpenFileInNotebook]);
     
     const handleDisconnect = useCallback(() => { ws.current?.close(); }, []);
-
-    // --- File Interaction ---
-    const handleOpenFileInNotebook = useCallback((remotePath: string, content: string) => {
-        if (!openApp) return;
-        setStatusMessage(`Opening ${remotePath} in Notebook...`);
-        openApp('notebook', {
-            initialData: {
-                fileName: pathHelper.basename(remotePath),
-                content: content,
-            }
-        });
-    }, [openApp]);
     
     const handleFileClick = useCallback((item: FilesystemItem) => {
         if (ws.current?.readyState === WebSocket.OPEN) {

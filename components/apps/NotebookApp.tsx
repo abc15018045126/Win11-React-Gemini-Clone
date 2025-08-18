@@ -61,7 +61,7 @@ const MenuItem: React.FC<{ onClick: () => void; children: React.ReactNode, disab
 
 const NotebookApp: React.FC<AppComponentProps> = ({ setTitle, initialData }) => {
     const triggerRefresh = initialData?.triggerRefresh;
-    const onSaveCallback = initialData?.onSave;
+    const onSaveCallback = initialData?.onSave as ((content: string) => void) | undefined;
     
     const [fileName, setFileName] = useState('Untitled.txt');
     const [filePath, setFilePath] = useState<string | undefined>(undefined);
@@ -84,16 +84,17 @@ const NotebookApp: React.FC<AppComponentProps> = ({ setTitle, initialData }) => 
         const fileIdentifier = initialData?.file as FileIdentifier | undefined;
         const initialContent = initialData?.content as string | undefined;
         const initialName = initialData?.fileName as string | undefined;
+        const remoteFilePath = initialData?.filePath as string | undefined;
         
         setIsLoading(true);
 
-        if (typeof initialContent === 'string') {
+        if (typeof initialContent === 'string') { // Handles SFTP/remote files
             setContent(initialContent);
             setFileName(initialName || 'Untitled Remote File');
-            setFilePath(undefined);
+            setFilePath(remoteFilePath); // Store the remote path for context
             setIsDirty(false);
             setIsLoading(false);
-        } else if (fileIdentifier?.path) {
+        } else if (fileIdentifier?.path) { // Handles local virtual files
             const loadContent = async () => {
                 const fileData = await readFile(fileIdentifier.path);
                 if (fileData) {
@@ -112,7 +113,7 @@ const NotebookApp: React.FC<AppComponentProps> = ({ setTitle, initialData }) => 
              // Default to a new, empty document
             handleNew();
         }
-    }, [initialData?.file?.path, initialData?.content, initialData?.fileName]);
+    }, [initialData?.file?.path, initialData?.content, initialData?.fileName, initialData?.filePath]);
 
     const updateStatusBar = useCallback(() => {
         const textarea = textareaRef.current;
@@ -171,14 +172,14 @@ const NotebookApp: React.FC<AppComponentProps> = ({ setTitle, initialData }) => 
     };
 
     const handleSave = async () => {
-        if (onSaveCallback) {
+        if (onSaveCallback) { // Prefer the remote save handler if provided
             onSaveCallback(content);
             setIsDirty(false);
         } else if (filePath) { // File exists in virtual FS
             await saveFile(filePath, content);
             setIsDirty(false);
             triggerRefresh?.();
-        } else { // New file, needs a name/location in virtual FS (not implemented, so falls back to Save As)
+        } else { // New file or file opened from user's disk, fallback to Save As
             handleSaveAs();
         }
     };
