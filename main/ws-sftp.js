@@ -15,6 +15,7 @@ function startSftpServer() {
         console.log(`[SFTP] Client connected: ${connectionId}`);
 
         const sendError = (payload) => ws.send(JSON.stringify({ type: 'error', payload }));
+        const sendOpError = (payload) => ws.send(JSON.stringify({ type: 'operation_error', payload }));
         const sendSuccess = (message, dirToRefresh, isLocal = false) => ws.send(JSON.stringify({ type: 'operation_success', payload: { message, dirToRefresh, isLocal } }));
 
         ws.on('message', (message) => {
@@ -26,7 +27,7 @@ function startSftpServer() {
                 const handleSftpError = (err, operation, target) => {
                     if (err) {
                         console.error(`[SFTP Error] ${operation} on ${target}:`, err);
-                        sendError(`Failed to ${operation} ${path.posix.basename(target)}: ${err.message}`);
+                        sendOpError(`Failed to ${operation} ${path.posix.basename(target)}: ${err.message}`);
                         return true;
                     }
                     return false;

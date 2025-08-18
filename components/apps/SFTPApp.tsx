@@ -152,6 +152,13 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
                     if(msg.payload.dirToRefresh === currentPath) {
                         fetchItems(currentPath);
                     }
+                    if (errorMsg) setErrorMsg('');
+                    break;
+                case 'operation_error':
+                    setErrorMsg(msg.payload);
+                    setStatusMessage(`Error: ${msg.payload}`);
+                    setIsLoading(false);
+                    setTimeout(() => setErrorMsg(''), 5000);
                     break;
                 case 'error':
                     setErrorMsg(msg.payload); setStatus('error'); setStatusMessage(`Error: ${msg.payload}`);
@@ -160,7 +167,7 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
                     break;
             }
         };
-    }, [host, port, username, password, status, currentPath, fetchItems]);
+    }, [host, port, username, password, status, currentPath, fetchItems, errorMsg]);
     
     const handleDisconnect = useCallback(() => { ws.current?.close(); }, []);
 
