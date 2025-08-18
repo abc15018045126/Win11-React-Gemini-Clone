@@ -1,16 +1,16 @@
 import type { AppDefinition } from '../../types';
 
-import { appDefinition as aboutAppDefinition } from './About';
-import { appDefinition as fileExplorerAppDefinition } from './FileExplorer';
-import { appDefinition as geminiChatAppDefinition } from './GeminiChat';
-import { appDefinition as hyperAppDefinition } from './Hyper';
-import { appDefinition as notebookAppDefinition } from './Notebook';
-import { appDefinition as settingsAppDefinition } from './Settings';
-import { appDefinition as chromeAppDefinition } from './Chrome';
+import { appDefinition as aboutAppDefinition } from './AboutApp';
+import { appDefinition as fileExplorerAppDefinition } from './FileExplorerApp';
+import { appDefinition as geminiChatAppDefinition } from './GeminiChatApp';
+import { appDefinition as hyperAppDefinition } from './HyperApp';
+import { appDefinition as notebookAppDefinition } from './NotebookApp';
+import { appDefinition as settingsAppDefinition } from './SettingsApp';
+import { appDefinition as chromeAppDefinition } from './ChromeApp';
 import { appDefinition as chrome2AppDefinition } from './Chrome2';
-import { appDefinition as terminusAppDefinition } from './Terminus';
-import { appDefinition as sftpAppDefinition } from './SFTP';
-import { appDefinition as appStoreAppDefinition } from './AppStore';
+import { appDefinition as terminusAppDefinition } from './TerminusApp';
+import { appDefinition as sftpAppDefinition } from './SFTPApp';
+import { appDefinition as appStoreAppDefinition } from './AppStoreApp';
 import { appDefinition as themeAppDefinition } from './ThemeApp';
 
 /**

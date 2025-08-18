@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChatMessage, AppComponentProps, AppDefinition } from '../../types';
 import { generateGeminiResponse } from '../../services/geminiService';

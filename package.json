@@ -1,16 +1,14 @@
 {
-  "name": "win11-react-gemini-clone-web",
+  "name": "win11-react-gemini-clone-electron",
   "version": "1.0.0",
-  "description": "A React and Tailwind CSS application mimicking the Windows 11 desktop UI, running on a Node.js backend.",
+  "description": "A React and Tailwind CSS application mimicking the Windows 11 desktop UI, designed to run in an Electron shell and featuring a Gemini API-powered chat application.",
   "main": "main.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "start": "node server.js",
-    "electron:start": "electron ."
+    "start": "electron ."
   },
   "devDependencies": {
-    "@types/express": "^4.17.21",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.2.0",
@@ -21,7 +19,6 @@
   "dependencies": {
     "@google/genai": "^1.14.0",
     "dotenv": "^16.3.1",
-    "express": "^4.19.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   }

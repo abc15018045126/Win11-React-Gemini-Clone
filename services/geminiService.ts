@@ -1,24 +1,16 @@
+
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 
 let ai: GoogleGenAI | null = null;
 let isInitializing = false;
 
-// Conditionally gets the API key from Electron IPC or the web API
+// Gets the API key exclusively from Electron IPC
 const getApiKey = async (): Promise<string | null> => {
   if (window.electronAPI) {
     return window.electronAPI.getApiKey();
   }
-  try {
-    const response = await fetch('/api/key');
-    if (!response.ok) {
-        throw new Error('Failed to fetch API key from server');
-    }
-    const { apiKey } = await response.json();
-    return apiKey;
-  } catch (error) {
-    console.error("Error fetching API key via web:", error);
-    return null;
-  }
+  // Return null if not in Electron environment
+  return null;
 };
 
 // Initialize the GoogleGenAI instance asynchronously
@@ -32,7 +24,7 @@ const initializeAi = async () => {
       ai = new GoogleGenAI({ apiKey });
     } else {
       console.warn(
-        "Gemini API key not found. Please set the API_KEY in your .env file. AI features will be disabled or return mock responses."
+        "Gemini API key not found. This can happen if the API_KEY is not in your .env file or if you are running in a browser without the Electron backend. AI features will be disabled or return mock responses."
       );
     }
   } catch (error) {
@@ -51,7 +43,7 @@ export const generateGeminiResponse = async (prompt: string): Promise<string> =>
   if (!ai) {
     // Fallback or error message if API key is not available
     await new Promise(resolve => setTimeout(resolve, 500)); // Simulate delay
-    return "Gemini API is not configured. Please ensure the API_KEY environment variable is set. This is a mock response.";
+    return "Gemini API is not configured. Please ensure you are running within Electron and the API_KEY environment variable is set. This is a mock response.";
   }
 
   try {

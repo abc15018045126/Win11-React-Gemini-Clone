@@ -1,4 +1,3 @@
-
 import React, { useEffect } from 'react';
 import { AppDefinition, AppComponentProps } from '../../types';
 import { StartIcon, SettingsIcon, SearchIcon, AboutIcon } from '../../constants';
