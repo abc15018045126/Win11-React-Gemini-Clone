@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const os = require('os');
 const fsRouter = require('./filesystem');
+const { launchExternalAppByPath } = require('./launcher');
 const { API_PORT } = require('./constants');
 
 function startApiServer() {
@@ -20,6 +21,22 @@ function startApiServer() {
         } catch (error) {
             console.error('API Error getting OS user:', error);
             res.status(500).json({ error: 'Failed to get OS username' });
+        }
+    });
+
+    // New route to launch external apps
+    apiApp.post('/api/launch', (req, res) => {
+        const { path: relativeAppPath } = req.body;
+        if (!relativeAppPath) {
+            return res.status(400).json({ error: 'Missing path in request body' });
+        }
+        
+        const success = launchExternalAppByPath(relativeAppPath);
+        
+        if (success) {
+            res.json({ success: true, message: 'App launch initiated.' });
+        } else {
+            res.status(500).json({ error: 'Failed to launch application.' });
         }
     });
 
