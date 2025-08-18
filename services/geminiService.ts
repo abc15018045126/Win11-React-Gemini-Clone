@@ -1,16 +1,23 @@
-
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+
+const API_URL = 'http://localhost:3001/api';
 
 let ai: GoogleGenAI | null = null;
 let isInitializing = false;
 
-// Gets the API key exclusively from Electron IPC
+// Gets the API key by fetching from the backend server
 const getApiKey = async (): Promise<string | null> => {
-  if (window.electronAPI) {
-    return window.electronAPI.getApiKey();
+  try {
+    const response = await fetch(`${API_URL}/get-key`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch API key: ${response.statusText}`);
+    }
+    const data = await response.json();
+    return data.apiKey;
+  } catch (error) {
+    console.error("Could not fetch Gemini API key from the backend:", error);
+    return null;
   }
-  // Return null if not in Electron environment
-  return null;
 };
 
 // Initialize the GoogleGenAI instance asynchronously
@@ -24,7 +31,7 @@ const initializeAi = async () => {
       ai = new GoogleGenAI({ apiKey });
     } else {
       console.warn(
-        "Gemini API key not found. This can happen if the API_KEY is not in your .env file or if you are running in a browser without the Electron backend. AI features will be disabled or return mock responses."
+        "Gemini API key not found. Ensure the backend server is running and the API_KEY is set in the .env file. AI features will be disabled or return mock responses."
       );
     }
   } catch (error) {
@@ -41,9 +48,8 @@ export const generateGeminiResponse = async (prompt: string): Promise<string> =>
   }
   
   if (!ai) {
-    // Fallback or error message if API key is not available
     await new Promise(resolve => setTimeout(resolve, 500)); // Simulate delay
-    return "Gemini API is not configured. Please ensure you are running within Electron and the API_KEY environment variable is set. This is a mock response.";
+    return "Gemini API is not configured. Please ensure the backend server is running and the API_KEY environment variable is set.";
   }
 
   try {

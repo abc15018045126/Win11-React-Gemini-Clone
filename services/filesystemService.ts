@@ -1,71 +1,174 @@
-
 import { ProjectFile, FilesystemItem } from '../types';
 
-const api = window.electronAPI;
+const API_BASE_URL = 'http://localhost:3001/api/fs';
 
-// A mock API for running in a browser without the Electron backend during development.
-// This allows the UI to run without crashing, but filesystem operations will do nothing.
-const mockApi = {
-    listDirectory: async (path: string): Promise<FilesystemItem[]> => { 
-        console.warn(`[Mock FS]: listDirectory called for "${path}". This is a mock response as the Electron backend is not available.`); 
-        return []; 
-    },
-    readFile: async (path: string): Promise<ProjectFile | null> => { 
-        console.warn(`[Mock FS]: readFile called for "${path}". This is a mock response.`); 
-        return null; 
-    },
-    saveFile: async (path: string, content: string): Promise<boolean> => { 
-        console.warn(`[Mock FS]: saveFile called for "${path}". This is a mock response.`); 
-        return false; 
-    },
-    findUniqueName: async (destinationPath: string, baseName: string, isFolder: boolean, extension: string = ''): Promise<string> => { 
-        console.warn(`[Mock FS]: findUniqueName called for "${baseName}". This is a mock response.`); 
-        return `${baseName} (1)${isFolder ? '' : extension}`; 
-    },
-    createFolder: async (path: string, name: string): Promise<boolean> => { 
-        console.warn(`[Mock FS]: createFolder called for "${name}" in "${path}". This is a mock response.`); 
-        return false; 
-    },
-    createFile: async (path: string, name: string, content: string): Promise<boolean> => { 
-        console.warn(`[Mock FS]: createFile called for "${name}" in "${path}". This is a mock response.`); 
-        return false; 
-    },
-    createAppShortcut: async (appId: string, appName: string): Promise<boolean> => { 
-        console.warn(`[Mock FS]: createAppShortcut called for "${appName}". This is a mock response.`); 
-        return false; 
-    },
-    deleteItem: async (item: FilesystemItem): Promise<boolean> => { 
-        console.warn(`[Mock FS]: deleteItem called for "${item.path}". This is a mock response.`); 
-        return false; 
-    },
-    renameItem: async (item: FilesystemItem, newName: string): Promise<boolean> => { 
-        console.warn(`[Mock FS]: renameItem called for "${item.path}" to "${newName}". This is a mock response.`); 
-        return false; 
-    },
-    moveItem: async (sourceItem: FilesystemItem, destinationPath: string): Promise<boolean> => { 
-        console.warn(`[Mock FS]: moveItem called for "${sourceItem.path}" to "${destinationPath}". This is a mock response.`); 
-        return false; 
-    },
-    copyItem: async (sourceItem: FilesystemItem, destinationPath: string): Promise<boolean> => { 
-        console.warn(`[Mock FS]: copyItem called for "${sourceItem.path}" to "${destinationPath}". This is a mock response.`); 
-        return false; 
-    },
+const handleResponse = async <T>(response: Response): Promise<T | null> => {
+    if (!response.ok) {
+        console.error(`API Error: ${response.status} ${response.statusText}`);
+        try {
+            const err = await response.json();
+            console.error('Error details:', err);
+        } catch (e) {
+            // Ignore if body is not json
+        }
+        return null;
+    }
+    // Handle cases with no content
+    if (response.status === 204) return null;
+    return response.json() as Promise<T>;
 };
 
-const service = api || mockApi;
+export const listDirectory = async (path: string): Promise<FilesystemItem[]> => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/list?path=${encodeURIComponent(path)}`);
+        return (await handleResponse<FilesystemItem[]>(response)) || [];
+    } catch (e) {
+        console.error('Network error in listDirectory:', e);
+        return [];
+    }
+};
 
-if (!api) {
-    console.log("Running in web mode. Filesystem operations will be mocked to allow UI development.");
-}
+export const readFile = async (path: string): Promise<ProjectFile | null> => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/read?path=${encodeURIComponent(path)}`);
+        return await handleResponse<ProjectFile>(response);
+    } catch (e) {
+        console.error('Network error in readFile:', e);
+        return null;
+    }
+};
 
-export const listDirectory = service.listDirectory;
-export const readFile = service.readFile;
-export const saveFile = service.saveFile;
-export const findUniqueName = service.findUniqueName;
-export const createFolder = service.createFolder;
-export const createFile = service.createFile;
-export const createAppShortcut = service.createAppShortcut;
-export const deleteItem = service.deleteItem;
-export const renameItem = service.renameItem;
-export const moveItem = service.moveItem;
-export const copyItem = service.copyItem;
+export const saveFile = async (path: string, content: string): Promise<boolean> => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/save`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path, content }),
+        });
+        const result = await handleResponse<{ success: boolean }>(response);
+        return result?.success || false;
+    } catch (e) {
+        console.error('Network error in saveFile:', e);
+        return false;
+    }
+};
+
+export const findUniqueName = async (destinationPath: string, baseName: string, isFolder: boolean, extension: string = ''): Promise<string> => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/find-unique-name`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ destinationPath, baseName, isFolder, extension }),
+        });
+        const result = await handleResponse<{ name: string }>(response);
+        return result?.name || `${baseName} (error)`;
+    } catch (e) {
+        console.error('Network error in findUniqueName:', e);
+        return `${baseName} (error)`;
+    }
+};
+
+export const createFolder = async (path: string, name: string): Promise<boolean> => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/create-folder`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path, name }),
+        });
+        const result = await handleResponse<{ success: boolean }>(response);
+        return result?.success || false;
+    } catch (e) {
+        console.error('Network error in createFolder:', e);
+        return false;
+    }
+};
+
+export const createFile = async (path: string, name: string, content: string): Promise<boolean> => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/create-file`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path, name, content }),
+        });
+        const result = await handleResponse<{ success: boolean }>(response);
+        return result?.success || false;
+    } catch (e) {
+        console.error('Network error in createFile:', e);
+        return false;
+    }
+};
+
+export const createAppShortcut = async (appId: string, appName: string): Promise<boolean> => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/create-shortcut`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ appId, appName }),
+        });
+        const result = await handleResponse<{ success: boolean }>(response);
+        return result?.success || false;
+    } catch (e) {
+        console.error('Network error in createAppShortcut:', e);
+        return false;
+    }
+};
+
+export const deleteItem = async (item: FilesystemItem): Promise<boolean> => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/delete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item }),
+        });
+        const result = await handleResponse<{ success: boolean }>(response);
+        return result?.success || false;
+    } catch (e) {
+        console.error('Network error in deleteItem:', e);
+        return false;
+    }
+};
+
+export const renameItem = async (item: FilesystemItem, newName: string): Promise<boolean> => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/rename`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item, newName }),
+        });
+        const result = await handleResponse<{ success: boolean }>(response);
+        return result?.success || false;
+    } catch (e) {
+        console.error('Network error in renameItem:', e);
+        return false;
+    }
+};
+
+export const moveItem = async (sourceItem: FilesystemItem, destinationPath: string): Promise<boolean> => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/move`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sourceItem, destinationPath }),
+        });
+        const result = await handleResponse<{ success: boolean }>(response);
+        return result?.success || false;
+    } catch (e) {
+        console.error('Network error in moveItem:', e);
+        return false;
+    }
+};
+
+export const copyItem = async (sourceItem: FilesystemItem, destinationPath: string): Promise<boolean> => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/copy`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sourceItem, destinationPath }),
+        });
+        const result = await handleResponse<{ success: boolean }>(response);
+        return result?.success || false;
+    } catch (e) {
+        console.error('Network error in copyItem:', e);
+        return false;
+    }
+};

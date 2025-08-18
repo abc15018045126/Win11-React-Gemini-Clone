@@ -1,23 +1,8 @@
-
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  // Security: Expose a custom function that calls ipcRenderer.invoke.
-  // Do not expose ipcRenderer directly. The channel names must match
-  // the names used in the ipcMain.handle() calls in main.js.
-  getApiKey: () => ipcRenderer.invoke('get-api-key'),
-
-  listDirectory: (path) => ipcRenderer.invoke('fs:listDirectory', path),
-  readFile: (path) => ipcRenderer.invoke('fs:readFile', path),
-  saveFile: (path, content) => ipcRenderer.invoke('fs:saveFile', path, content),
-  findUniqueName: (destinationPath, baseName, isFolder, extension) => 
-    ipcRenderer.invoke('fs:findUniqueName', destinationPath, baseName, isFolder, extension),
-  createFolder: (path, name) => ipcRenderer.invoke('fs:createFolder', path, name),
-  createFile: (path, name, content) => ipcRenderer.invoke('fs:createFile', path, name, content),
-  createAppShortcut: (appId, appName) => ipcRenderer.invoke('fs:createAppShortcut', appId, appName),
-  deleteItem: (item) => ipcRenderer.invoke('fs:deleteItem', item),
-  renameItem: (item, newName) => ipcRenderer.invoke('fs:renameItem', item, newName),
-  moveItem: (sourceItem, destinationPath) => ipcRenderer.invoke('fs:moveItem', sourceItem, destinationPath),
-  copyItem: (sourceItem, destinationPath) => ipcRenderer.invoke('fs:copyItem', sourceItem, destinationPath),
+  // Most APIs have been moved to the Express server running in the main process.
+  // We only expose functions here that are unique to the Electron renderer environment
+  // and cannot be handled over a standard web API, like launching another Electron process.
   launchExternalApp: (path) => ipcRenderer.invoke('app:launchExternal', path),
 });

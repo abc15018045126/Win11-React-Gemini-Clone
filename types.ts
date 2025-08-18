@@ -1,18 +1,9 @@
 import { ReactNode } from 'react';
 
 export interface IElectronAPI {
-  getApiKey: () => Promise<string | null>;
-  listDirectory: (path: string) => Promise<FilesystemItem[]>;
-  readFile: (path: string) => Promise<ProjectFile | null>;
-  saveFile: (path: string, content: string) => Promise<boolean>;
-  findUniqueName: (destinationPath: string, baseName: string, isFolder: boolean, extension?: string) => Promise<string>;
-  createFolder: (path: string, name: string) => Promise<boolean>;
-  createFile: (path: string, name: string, content: string) => Promise<boolean>;
-  createAppShortcut: (appId: string, appName: string) => Promise<boolean>;
-  deleteItem: (item: FilesystemItem) => Promise<boolean>;
-  renameItem: (item: FilesystemItem, newName: string) => Promise<boolean>;
-  moveItem: (sourceItem: FilesystemItem, destinationPath: string) => Promise<boolean>;
-  copyItem: (sourceItem: FilesystemItem, destinationPath: string) => Promise<boolean>;
+  // This is the only function left that is specific to the Electron environment.
+  // All other filesystem/API key operations are now handled via a web API
+  // to ensure consistency between the Electron app and a web browser client.
   launchExternalApp: (path: string) => Promise<boolean>;
 }
 
@@ -96,7 +87,7 @@ export interface ChatMessage {
 }
 
 export interface Theme {
-  id: string;
+  id:string;
   name: string;
   wallpaper: string;
   taskbar: {
