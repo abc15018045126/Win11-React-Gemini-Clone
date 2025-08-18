@@ -26,12 +26,12 @@ function startApiServer() {
 
     // New route to launch external apps
     apiApp.post('/api/launch', (req, res) => {
-        const { path: relativeAppPath } = req.body;
+        const { path: relativeAppPath, args } = req.body;
         if (!relativeAppPath) {
             return res.status(400).json({ error: 'Missing path in request body' });
         }
         
-        const success = launchExternalAppByPath(relativeAppPath);
+        const success = launchExternalAppByPath(relativeAppPath, args);
         
         if (success) {
             res.json({ success: true, message: 'App launch initiated.' });

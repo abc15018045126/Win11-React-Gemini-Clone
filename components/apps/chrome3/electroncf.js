@@ -20,6 +20,10 @@ const config = {
 
 let mainWindow;
 
+// Check for headless flag
+const isHeadless = process.argv.includes('--headless');
+
+
 function createWindow() {
     mainWindow = new BrowserWindow({
         width: 800,
@@ -65,6 +69,7 @@ function startVlessClientBridge() {
     });
     
     ipcMain.on('websocket-open', (event, { connectionId }) => {
+        if (isHeadless) return; // In headless mode, there's no renderer to talk to.
         const socketState = sockets.get(connectionId);
         if (socketState && socketState.stage === 2) {
             const vlessHeader = vlessHeaders.get(connectionId);
@@ -122,22 +127,29 @@ function startVlessClientBridge() {
                 const vlessHeader = Buffer.concat([vlessHeaderPart1, vlessHeaderPart2]);
                 vlessHeaders.set(connectionId, vlessHeader);
                 
-                mainWindow.webContents.send('create-websocket', { connectionId, config });
+                if (!isHeadless) {
+                    mainWindow.webContents.send('create-websocket', { connectionId, config });
+                }
                 socketState.stage = 2;
                 return;
             }
 
             if (socketState.stage === 3) {
-                mainWindow.webContents.send('send-websocket-data', { connectionId, data });
+                 if (!isHeadless) {
+                    mainWindow.webContents.send('send-websocket-data', { connectionId, data });
+                }
             }
         });
 
-        socket.on('error', () => { mainWindow.webContents.send('close-websocket', { connectionId }); });
-        socket.on('close', () => { mainWindow.webContents.send('close-websocket', { connectionId }); });
+        socket.on('error', () => { if (!isHeadless) mainWindow.webContents.send('close-websocket', { connectionId }); });
+        socket.on('close', () => { if (!isHeadless) mainWindow.webContents.send('close-websocket', { connectionId }); });
     });
 
     server.listen(config.localPort, () => {
-        console.log(`SOCKS5 proxy listening on 127.0.0.1:${config.localPort}`);
+        console.log(`[CHROME 3 PROXY] SOCKS5 proxy listening on 127.0.0.1:${config.localPort}`);
+        if(isHeadless) {
+            console.log('[CHROME 3 PROXY] Running in headless mode.');
+        }
     });
 }
 
@@ -147,11 +159,13 @@ app.commandLine.appendSwitch('host-resolver-rules', `MAP ${config.serverAddress}
 app.commandLine.appendSwitch('ignore-certificate-errors');
 
 app.whenReady().then(() => {
-    createWindow();
     startVlessClientBridge();
-    app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) createWindow();
-    });
+    if (!isHeadless) {
+        createWindow();
+        app.on('activate', () => {
+            if (BrowserWindow.getAllWindows().length === 0) createWindow();
+        });
+    }
 });
 
 app.on('window-all-closed', () => {

@@ -2,11 +2,13 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { FS_ROOT } = require('./constants');
 
-function launchExternalAppByPath(relativeAppPath) {
+function launchExternalAppByPath(relativeAppPath, args = []) {
     try {
         const appDir = path.join(FS_ROOT, relativeAppPath);
-        console.log(`Attempting to launch external app from: ${appDir}`);
-        const child = spawn(process.execPath, ['.'], {
+        const spawnArgs = ['.', ...args];
+        console.log(`Attempting to launch external app from: ${appDir} with args: ${spawnArgs.join(' ')}`);
+        
+        const child = spawn(process.execPath, spawnArgs, {
             cwd: appDir,
             detached: true,
             stdio: 'inherit',

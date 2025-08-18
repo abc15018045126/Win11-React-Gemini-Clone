@@ -4,7 +4,9 @@ export interface IElectronAPI {
   // This is the only function left that is specific to the Electron environment.
   // All other filesystem/API key operations are now handled via a web API
   // to ensure consistency between the Electron app and a web browser client.
-  launchExternalApp: (path: string) => Promise<boolean>;
+  launchExternalApp: (path: string, args?: string[]) => Promise<boolean>;
+  setProxyForSession: (partition: string, proxyConfig: { proxyRules: string }) => Promise<void>;
+  clearProxyForSession: (partition: string) => Promise<void>;
 }
 
 declare global {

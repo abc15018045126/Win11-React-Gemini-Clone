@@ -57,16 +57,17 @@ const App: React.FC = () => {
     if (!appDef) return;
 
     if (appDef.isExternal && appDef.externalPath) {
+      const args = initialData?.args || [];
       // Prioritize the native Electron API if available
       if ((window as any).electronAPI?.launchExternalApp) {
-        (window as any).electronAPI.launchExternalApp(appDef.externalPath);
+        (window as any).electronAPI.launchExternalApp(appDef.externalPath, args);
       } else {
         // Fallback to the web API for remote/browser clients
         try {
           const response = await fetch('http://localhost:3001/api/launch', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ path: appDef.externalPath }),
+            body: JSON.stringify({ path: appDef.externalPath, args }),
           });
           if (!response.ok) {
             console.error('Failed to launch external app via API');
