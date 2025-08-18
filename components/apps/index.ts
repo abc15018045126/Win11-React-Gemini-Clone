@@ -1,4 +1,3 @@
-
 import type { AppDefinition } from '../../types';
 
 import { appDefinition as aboutAppDefinition } from './AboutApp';
@@ -8,6 +7,8 @@ import { appDefinition as hyperAppDefinition } from './HyperApp';
 import { appDefinition as notebookAppDefinition } from './NotebookApp';
 import { appDefinition as settingsAppDefinition } from './SettingsApp';
 import { appDefinition as chromeAppDefinition } from './ChromeApp';
+import { appDefinition as terminusAppDefinition } from './TerminusApp';
+import { appDefinition as sftpAppDefinition } from './SFTPApp';
 
 /**
  * The master list of all applications available in the OS.
@@ -17,6 +18,8 @@ import { appDefinition as chromeAppDefinition } from './ChromeApp';
  * 3. Import that definition here and add it to this array.
  */
 export const APP_DEFINITIONS: AppDefinition[] = [
+  sftpAppDefinition,
+  terminusAppDefinition,
   chromeAppDefinition,
   fileExplorerAppDefinition,
   geminiChatAppDefinition,

@@ -6,13 +6,19 @@ const os = require('os');
 // Load environment variables from a .env file if it exists
 require('dotenv').config();
 
+const isDev = !app.isPackaged;
+
 // --- Filesystem Setup ---
 const VIRTUAL_FS_ROOT = path.join(app.getPath('userData'), 'VirtualFS');
 
 // Security: Ensure a given path is safely within our virtual filesystem root
 function safeJoin(relativePath) {
-  const absolutePath = path.join(VIRTUAL_FS_ROOT, relativePath);
-  if (!absolutePath.startsWith(VIRTUAL_FS_ROOT)) {
+  // Normalize the path to handle separators consistently
+  const normalizedRelativePath = path.normalize(relativePath);
+  const absolutePath = path.join(VIRTUAL_FS_ROOT, normalizedRelativePath);
+  
+  // Also normalize the root for comparison
+  if (!absolutePath.startsWith(path.normalize(VIRTUAL_FS_ROOT))) {
     throw new Error('Path traversal attempt detected');
   }
   return absolutePath;
@@ -27,9 +33,20 @@ function setupInitialFilesystem() {
 
     const desktopPath = path.join(VIRTUAL_FS_ROOT, 'Desktop');
     fs.mkdirSync(desktopPath, { recursive: true });
+
+    // Add new folders for sidebar
+    const documentsPath = path.join(VIRTUAL_FS_ROOT, 'Documents');
+    fs.mkdirSync(documentsPath, { recursive: true });
+    const downloadsPath = path.join(VIRTUAL_FS_ROOT, 'Downloads');
+    fs.mkdirSync(downloadsPath, { recursive: true });
+
+    // Create a readme in documents
+    fs.writeFileSync(path.join(documentsPath, 'readme.txt'), 'This is your Documents folder.');
     
     // Create default app shortcuts
     const defaultApps = [
+        { appId: 'sftp', name: 'SFTP Client' },
+        { appId: 'terminus', name: 'Terminus' },
         { appId: 'chrome', name: 'Chrome' },
         { appId: 'geminiChat', name: 'Gemini Chat' },
         { appId: 'fileExplorer', name: 'File Explorer' },
@@ -60,10 +77,14 @@ function createWindow() {
     trafficLightPosition: { x: 15, y: 15 },
   });
 
-  mainWindow.loadFile('index.html');
-
-  // Open DevTools for debugging
-  // mainWindow.webContents.openDevTools();
+  if (isDev) {
+    // In development, load from the Vite dev server
+    mainWindow.loadURL('http://localhost:5173');
+    mainWindow.webContents.openDevTools();
+  } else {
+    // In production, load the built HTML file
+    mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
+  }
 }
 
 app.whenReady().then(() => {
@@ -82,7 +103,7 @@ app.on('window-all-closed', function () {
 // --- IPC Handlers for Filesystem API ---
 
 ipcMain.handle('get-api-key', () => {
-  return process.env.API_KEY;
+  return process.env.GEMINI_API_KEY;
 });
 
 ipcMain.handle('fs:listDirectory', async (event, relativePath) => {
