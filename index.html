@@ -34,6 +34,21 @@
     .animate-fade-in-fast {
         animation: fade-in-fast 0.1s ease-out forwards;
     }
+    /* Blinking Cursor for Terminal */
+    @keyframes blink-cursor {
+      from, to { background-color: transparent; }
+      50% { background-color: white; }
+    }
+    .blinking-cursor {
+        display: inline-block;
+        width: 8px;
+        height: 1.1em;
+        background-color: white;
+        animation: blink-cursor 1s step-end infinite;
+        position: relative;
+        top: 0.15em;
+        margin-left: 2px;
+    }
   </style>
 <script type="importmap">
 {

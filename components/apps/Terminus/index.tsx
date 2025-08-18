@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { AppComponentProps, AppDefinition } from '../../types';
-import { HyperIcon as TerminusIcon } from '../../constants';
+import { AppComponentProps, AppDefinition } from '../../../types';
+import { HyperIcon as TerminusIcon } from '../../../constants';
 
 // --- Reusable Terminal Component ---
 
