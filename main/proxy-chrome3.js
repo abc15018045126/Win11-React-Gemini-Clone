@@ -1,133 +1,98 @@
-const WebSocket = require('ws');
+
+const { WebSocketServer, createWebSocketStream } = require('ws');
 const net = require('net');
+const http = require('http');
 
-// --- VLESS Configuration ---
-const config = {
-    serverAddress: 'pages.cloudflare.com',
-    serverPort: 443,
-    uuid: '2ea73714-138e-4cc7-8cab-d7caf476d51b',
-    localPort: 1080,
-    webSocketPath: '/proxyip=ProxyIP.US.CMLiussss.net',
-    hostHeader: 'nless.abc15018045126.ip-dynamic.org'
-};
+// This server will listen on port 1080, as the previous proxy did.
+// A client application will connect to this server to have its traffic proxied.
+const PORT = 1080; 
 
-function startChrome3Proxy() {
-    console.log('[Chrome 3 Proxy] Initializing...');
+/**
+ * Parses the custom header format from a client.
+ * Protocol: [version (1 byte)][atyp (1 byte)][address][port (2 bytes)][initial data]
+ * atyp: 0x01 for IPv4 (4 bytes), 0x02 for domain (1 byte len + domain)
+ * @param {Buffer} buffer The initial message from the WebSocket client.
+ * @returns {{addressRemote: string, portRemote: number, rawData: Buffer, nlessVersion: Buffer}}
+ */
+function processNlessHeader(buffer) {
+    const nlessVersion = buffer.slice(0, 1);
+    const atyp = buffer[1];
+    let offset = 2;
+    let addressRemote = '';
 
-    const server = net.createServer(socket => {
-        let stage = 0;
-        let headerSent = false;
+    if (atyp === 0x01) { // IPv4
+        addressRemote = buffer.slice(offset, offset + 4).join('.');
+        offset += 4;
+    } else if (atyp === 0x02) { // Domain name
+        const addrLen = buffer[offset];
+        offset += 1;
+        addressRemote = buffer.slice(offset, offset + addrLen).toString('utf8');
+        offset += addrLen;
+    } else {
+        throw new Error(`Unsupported address type: ${atyp}`);
+    }
 
-        const headers = { 'User-Agent': 'Mozilla/5.0' };
-        if (config.hostHeader) {
-            headers['Host'] = config.hostHeader;
-        }
+    const portRemote = buffer.readUInt16BE(offset);
+    offset += 2;
+    const rawData = buffer.slice(offset);
 
-        const path = config.webSocketPath;
-        const encodedPath = path.startsWith('/') ? '/' + encodeURIComponent(path.substring(1)) : encodeURIComponent(path);
+    return { addressRemote, portRemote, rawData, nlessVersion };
+}
 
-        const ws = new WebSocket(`wss://${config.serverAddress}:${config.serverPort}${encodedPath}`, {
-            rejectUnauthorized: false,
-            headers: headers
-        });
+/**
+ * Starts the WebSocket proxy server as requested by the user.
+ * This server listens for incoming WebSocket connections, reads a custom header
+ * to determine the destination, and tunnels the traffic to that destination.
+ */
+function startWsProxyServer() {
+    const server = http.createServer((req, res) => {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('This is a WebSocket proxy server endpoint.\n');
+    });
 
-        ws.on('open', () => { /* Ready for VLESS header */ });
-        ws.on('message', data => socket.write(data));
-        ws.on('error', err => {
-            console.error('[Chrome 3 Proxy] WebSocket error:', err.message);
-            socket.destroy();
-        });
-        ws.on('close', () => socket.destroy());
+    const wss = new WebSocketServer({ server });
 
-        socket.on('data', (data) => {
-            if (stage === 0) {
-                socket.write(Buffer.from([0x05, 0x00])); // SOCKS5 greeting
-                stage = 1;
-                return;
-            }
-
-            if (stage === 1) { // SOCKS5 connection request
-                const [ver, cmd, rsv, atyp] = data;
-                if (ver !== 5 || cmd !== 1) {
-                    console.error('[Chrome 3 Proxy] Unsupported SOCKS version or command');
-                    socket.destroy();
-                    return;
-                }
-
-                let remoteAddr, remotePort;
-                if (atyp === 1) { // IPv4
-                    remoteAddr = data.slice(4, 8).join('.');
-                    remotePort = data.readUInt16BE(8);
-                } else if (atyp === 3) { // Domain
-                    const addrLen = data[4];
-                    remoteAddr = data.slice(5, 5 + addrLen).toString('utf8');
-                    remotePort = data.readUInt16BE(5 + addrLen);
-                } else {
-                    console.error(`[Chrome 3 Proxy] Unsupported address type: ${atyp}`);
-                    socket.destroy();
-                    return;
-                }
-
-                // Construct VLESS header
-                const uuidBytes = Buffer.from(config.uuid.replace(/-/g, ''), 'hex');
-                const portBytes = Buffer.alloc(2);
-                portBytes.writeUInt16BE(remotePort);
-                const vlessHeaderPart1 = Buffer.concat([ Buffer.from([0x00]), uuidBytes, Buffer.from([0x00]), Buffer.from([0x01]), portBytes ]);
+    wss.on('connection', (ws) => {
+        ws.once('message', (msg) => {
+            try {
+                const nlessBuffer = Buffer.isBuffer(msg) ? msg : (Array.isArray(msg) ? Buffer.concat(msg) : Buffer.from(msg));
+                const { addressRemote, portRemote, rawData, nlessVersion } = processNlessHeader(nlessBuffer);
                 
-                let vlessHeaderPart2;
-                if (atyp === 1) {
-                    vlessHeaderPart2 = Buffer.concat([Buffer.from([0x01]), data.slice(4, 8)]);
-                } else {
-                    const addrBytes = Buffer.from(remoteAddr, 'utf8');
-                    const addrLenByte = Buffer.alloc(1);
-                    addrLenByte.writeUInt8(addrBytes.length);
-                    vlessHeaderPart2 = Buffer.concat([Buffer.from([0x02]), addrLenByte, addrBytes]);
-                }
-                const vlessHeader = Buffer.concat([vlessHeaderPart1, vlessHeaderPart2]);
-
-                const sendVlessHeader = () => {
-                    if (ws.readyState === WebSocket.OPEN) {
-                        ws.send(vlessHeader);
-                        headerSent = true;
-                        const successResponse = Buffer.from([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
-                        socket.write(successResponse);
-                        stage = 2; // Data piping stage
-                    }
-                };
+                ws.send(Buffer.concat([nlessVersion, Buffer.from([0])]));
                 
-                if (ws.readyState === WebSocket.OPEN) {
-                    sendVlessHeader();
-                } else {
-                    ws.once('open', sendVlessHeader);
-                }
-                return;
-            }
+                const duplex = createWebSocketStream(ws);
+                
+                const tcpSocket = net.connect({ host: addressRemote, port: portRemote }, function() {
+                    this.write(rawData);
+                    duplex.on('error', () => {}).pipe(this).on('error', () => {}).pipe(duplex);
+                });
 
-            if (stage === 2 && headerSent) {
-                if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(data);
-                }
-            }
-        });
+                tcpSocket.on('error', (err) => {
+                    console.error(`[WS Proxy Server] TCP connection error to ${addressRemote}:${portRemote}:`, err.message);
+                    duplex.destroy();
+                });
 
-        socket.on('error', err => {
-            // Silently handle errors, client will disconnect
-            ws.close();
+            } catch (error) {
+                console.error('[WS Proxy Server] Error processing initial message:', error.message);
+                ws.close(1008, 'Invalid protocol format');
+            }
+        }).on('error', (err) => {
+             console.error('[WS Proxy Server] WebSocket message error:', err);
         });
-        socket.on('close', () => ws.close());
     });
 
     server.on('error', (e) => {
         if (e.code === 'EADDRINUSE') {
-            console.error(`[Chrome 3 Proxy] FATAL: Port 1080 is already in use by another application. Proxy cannot start.`);
+            console.error(`[WS Proxy Server] FATAL: Port ${PORT} is already in use. Proxy server cannot start.`);
         } else {
-            console.error('[Chrome 3 Proxy] Server error:', e);
+            console.error('[WS Proxy Server] Server error:', e);
         }
     });
 
-    server.listen(config.localPort, () => {
-        console.log(`✅ Chrome 3 SOCKS5 proxy listening on 127.0.0.1:${config.localPort}`);
+    server.listen(PORT, () => {
+        console.log(`✅ WebSocket Proxy Server listening on ws://localhost:${PORT}`);
     });
 }
 
-module.exports = { startChrome3Proxy };
+// Export the new server function
+module.exports = { startWsProxyServer };

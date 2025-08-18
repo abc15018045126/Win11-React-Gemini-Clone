@@ -1,3 +1,4 @@
+
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
 require('dotenv').config();
@@ -8,7 +9,7 @@ const { initializeIpcHandlers } = require('./ipc');
 const { startApiServer } = require('./api');
 const { startTerminusServer } = require('./ws-terminus');
 const { startSftpServer } = require('./ws-sftp');
-const { startChrome3Proxy } = require('./proxy-chrome3'); // Import the new proxy server
+const { startWsProxyServer } = require('./proxy-chrome3'); // Import the new WebSocket proxy server
 
 function createWindow() {
     const mainWindow = new BrowserWindow({
@@ -43,7 +44,7 @@ app.whenReady().then(() => {
     startApiServer();
     startTerminusServer();
     startSftpServer();
-    startChrome3Proxy(); // Start the proxy server on application launch
+    startWsProxyServer(); // Start the new WebSocket proxy server on application launch
 
     createWindow();
 
