@@ -7,7 +7,7 @@ import { appDefinition as hyperAppDefinition } from './HyperApp';
 import { appDefinition as notebookAppDefinition } from './NotebookApp';
 import { appDefinition as settingsAppDefinition } from './SettingsApp';
 import { appDefinition as chromeAppDefinition } from './ChromeApp';
-import { appDefinition as chrome2AppDefinition } from './Chrome2';
+import { appDefinition as chrome2AppDefinition } from './Chrome2App';
 import { appDefinition as terminusAppDefinition } from './TerminusApp';
 import { appDefinition as sftpAppDefinition } from './SFTPApp';
 import { appDefinition as appStoreAppDefinition } from './AppStoreApp';

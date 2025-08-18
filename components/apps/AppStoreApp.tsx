@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { AppDefinition, AppComponentProps } from '../../types';
 import { StoreIcon, RefreshIcon } from '../../constants';
 import * as FsService from '../../services/filesystemService';
-import { APP_DEFINITIONS } from '../';
+import { APP_DEFINITIONS } from '.';
 
 const AppStoreApp: React.FC<AppComponentProps> = ({ setTitle, initialData }) => {
     const [installedAppIds, setInstalledAppIds] = useState<Set<string>>(new Set());
