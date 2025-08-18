@@ -99,6 +99,18 @@ export const Browser3Icon: React.FC<AppIconProps> = ({ className = "w-6 h-6", is
     </div>
 );
 
+export const Browser4Icon: React.FC<AppIconProps> = ({ className = "w-6 h-6", isSmall }) => (
+    <div className={`relative ${isSmall ? "w-5 h-5" : className}`}>
+        <BrowserIcon className="w-full h-full" isSmall={isSmall} />
+        <span 
+            className={`absolute bg-orange-500 text-white font-bold rounded-full flex items-center justify-center border-2 border-black/80
+            ${isSmall ? 'text-[8px] w-3.5 h-3.5 -bottom-0.5 -right-0.5' : 'text-[10px] w-4 h-4 -bottom-1 -right-1'}`}
+        >
+          4
+        </span>
+    </div>
+);
+
 export const SftpIcon: React.FC<AppIconProps> = ({ className = "w-6 h-6", isSmall }) => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={isSmall ? "w-5 h-5" : className}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />

@@ -10,6 +10,7 @@ import { appDefinition as settingsAppDefinition } from './SettingsApp';
 import { appDefinition as chromeAppDefinition } from './ChromeApp';
 import { appDefinition as chrome2AppDefinition } from './Chrome2App';
 import { appDefinition as chrome3AppDefinition } from './Chrome3App'; // Restored Chrome 3
+import { appDefinition as chrome4AppDefinition } from './Chrome4App';
 import { appDefinition as terminusAppDefinition } from './TerminusApp';
 import { appDefinition as terminusSshAppDefinition } from './TerminusSshApp';
 import { appDefinition as sftpAppDefinition } from './SFTPApp';
@@ -32,6 +33,7 @@ export const APP_DEFINITIONS: AppDefinition[] = [
   chromeAppDefinition,
   chrome2AppDefinition,
   chrome3AppDefinition, // Restored Chrome 3
+  chrome4AppDefinition,
   fileExplorerAppDefinition,
   geminiChatAppDefinition,
   hyperAppDefinition,
