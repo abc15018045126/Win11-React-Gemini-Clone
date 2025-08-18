@@ -65,10 +65,24 @@ function startSftpServer() {
                         ws.send(JSON.stringify({ type: 'list', payload: { path: reqPath, items } }));
                     });
 
+                } else if (data.type === 'get_content' && sftp) {
+                    const { path: reqPath } = data.payload;
+                    const stream = sftp.createReadStream(reqPath);
+                    let chunks = [];
+                    stream.on('data', (chunk) => chunks.push(chunk));
+                    stream.on('error', (err) => handleSftpError(err, 'get content for', reqPath));
+                    stream.on('end', () => {
+                        const buffer = Buffer.concat(chunks);
+                        ws.send(JSON.stringify({
+                            type: 'file_content',
+                            payload: { path: reqPath, content: buffer.toString('utf8') }
+                        }));
+                    });
+
                 } else if (data.type === 'upload' && sftp) {
-                    const { remoteDir, fileName, fileData } = data.payload;
+                    const { remoteDir, fileName, fileData, encoding = 'base64' } = data.payload;
                     const remotePath = path.posix.join(remoteDir, fileName);
-                    const buffer = Buffer.from(fileData, 'base64');
+                    const buffer = Buffer.from(fileData, encoding);
                     const stream = sftp.createWriteStream(remotePath);
                     stream.on('error', (err) => handleSftpError(err, 'upload', remotePath));
                     stream.on('finish', () => sendSuccess(`Uploaded ${fileName}`, remoteDir, false));

@@ -60,13 +60,13 @@ const MenuItem: React.FC<{ onClick: () => void; children: React.ReactNode, disab
 
 
 const NotebookApp: React.FC<AppComponentProps> = ({ setTitle, initialData }) => {
-    const fileIdentifier = initialData?.file as FileIdentifier | undefined;
     const triggerRefresh = initialData?.triggerRefresh;
+    const onSaveCallback = initialData?.onSave;
     
-    const [fileName, setFileName] = useState(fileIdentifier?.name || 'Untitled.txt');
-    const [filePath, setFilePath] = useState(fileIdentifier?.path);
+    const [fileName, setFileName] = useState('Untitled.txt');
+    const [filePath, setFilePath] = useState<string | undefined>(undefined);
     const [content, setContent] = useState('');
-    const [isLoading, setIsLoading] = useState(!!fileIdentifier);
+    const [isLoading, setIsLoading] = useState(true);
     const [isDirty, setIsDirty] = useState(false);
     const [wordWrap, setWordWrap] = useState(true);
     const [zoomLevel, setZoomLevel] = useState(100);
@@ -79,10 +79,22 @@ const NotebookApp: React.FC<AppComponentProps> = ({ setTitle, initialData }) => 
         setTitle(`${isDirty ? '*' : ''}${fileName} - Notebook`);
     }, [setTitle, fileName, isDirty]);
 
+    // Handles loading file from path, OR from direct content injection
     useEffect(() => {
-        if (fileIdentifier?.path) {
+        const fileIdentifier = initialData?.file as FileIdentifier | undefined;
+        const initialContent = initialData?.content as string | undefined;
+        const initialName = initialData?.fileName as string | undefined;
+        
+        setIsLoading(true);
+
+        if (typeof initialContent === 'string') {
+            setContent(initialContent);
+            setFileName(initialName || 'Untitled Remote File');
+            setFilePath(undefined);
+            setIsDirty(false);
+            setIsLoading(false);
+        } else if (fileIdentifier?.path) {
             const loadContent = async () => {
-                setIsLoading(true);
                 const fileData = await readFile(fileIdentifier.path);
                 if (fileData) {
                     setContent(fileData.content);
@@ -90,13 +102,17 @@ const NotebookApp: React.FC<AppComponentProps> = ({ setTitle, initialData }) => 
                     setFileName(fileData.name);
                 } else {
                     setContent(`Error: Could not load file at ${fileIdentifier.path}`);
+                    setFileName('Error');
                 }
-                setIsLoading(false);
                 setIsDirty(false);
+                setIsLoading(false);
             };
             loadContent();
+        } else {
+             // Default to a new, empty document
+            handleNew();
         }
-    }, [fileIdentifier]);
+    }, [initialData]);
 
     const updateStatusBar = useCallback(() => {
         const textarea = textareaRef.current;
@@ -155,7 +171,10 @@ const NotebookApp: React.FC<AppComponentProps> = ({ setTitle, initialData }) => 
     };
 
     const handleSave = async () => {
-        if (filePath) { // File exists in virtual FS
+        if (onSaveCallback) {
+            onSaveCallback(content);
+            setIsDirty(false);
+        } else if (filePath) { // File exists in virtual FS
             await saveFile(filePath, content);
             setIsDirty(false);
             triggerRefresh?.();
@@ -202,7 +221,7 @@ const NotebookApp: React.FC<AppComponentProps> = ({ setTitle, initialData }) => 
                 <MenuDropdown title="File">
                     <MenuItem onClick={handleNew}>New</MenuItem>
                     <MenuItem onClick={handleOpen}>Open...</MenuItem>
-                    <MenuItem onClick={handleSave} disabled={!isDirty || !filePath}>Save</MenuItem>
+                    <MenuItem onClick={handleSave} disabled={!isDirty}>Save</MenuItem>
                     <MenuItem onClick={handleSaveAs}>Save As...</MenuItem>
                 </MenuDropdown>
                 <MenuDropdown title="View">
@@ -220,7 +239,7 @@ const NotebookApp: React.FC<AppComponentProps> = ({ setTitle, initialData }) => 
 
             <textarea
                 ref={textareaRef}
-                value={isLoading ? 'Loading file...' : content}
+                value={isLoading ? 'Loading...' : content}
                 onChange={(e) => handleContentChange(e.target.value)}
                 onKeyUp={updateStatusBar}
                 onMouseUp={updateStatusBar}

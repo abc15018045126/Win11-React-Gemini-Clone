@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { AppComponentProps, AppDefinition, FilesystemItem as BaseFilesystemItem } from '../../types';
+import { AppComponentProps, AppDefinition, FilesystemItem as BaseFilesystemItem, ClipboardItem } from '../../types';
 import { FolderIcon, FileGenericIcon, SftpIcon } from '../../constants';
 import * as FsService from '../../services/filesystemService';
 import ContextMenu, { ContextMenuItem } from '../ContextMenu';
@@ -17,9 +17,53 @@ const pathHelper = {
 };
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
-interface FilesystemItem extends BaseFilesystemItem { size?: number; }
+interface FilesystemItem extends BaseFilesystemItem { 
+    size?: number;
+    children?: FilesystemItem[];
+}
 
-const SFTPApp: React.FC<AppComponentProps> = ({ setTitle }) => {
+// Recursive component to render the file tree
+const FileTree: React.FC<{
+    items: FilesystemItem[];
+    onFileClick: (item: FilesystemItem) => void;
+    onFolderClick: (item: FilesystemItem) => void;
+    onItemContextMenu: (e: React.MouseEvent, item: FilesystemItem) => void;
+    level?: number;
+}> = ({ items, onFileClick, onFolderClick, onItemContextMenu, level = 0 }) => {
+    return (
+        <div className="space-y-0.5">
+            {items.map(item => (
+                <div key={item.path}>
+                    <button
+                        onDoubleClick={() => item.type === 'folder' ? onFolderClick(item) : onFileClick(item)}
+                        onClick={() => item.type === 'folder' ? onFolderClick(item) : onFileClick(item)}
+                        onContextMenu={(e) => onItemContextMenu(e, item)}
+                        className="w-full flex items-center p-1 rounded text-left text-sm hover:bg-zinc-700/80"
+                        style={{ paddingLeft: `${level * 16 + 4}px` }}
+                        title={item.path}
+                    >
+                        {item.type === 'folder' 
+                            ? <FolderIcon isSmall className="w-5 h-5 text-amber-400 mr-2 flex-shrink-0"/> 
+                            : <FileGenericIcon isSmall className="w-5 h-5 text-zinc-400 mr-2 flex-shrink-0"/>
+                        }
+                        <span className="truncate">{item.name}</span>
+                    </button>
+                    {item.children && item.children.length > 0 && (
+                        <FileTree 
+                            items={item.children} 
+                            onFileClick={onFileClick}
+                            onFolderClick={onFolderClick}
+                            onItemContextMenu={onItemContextMenu}
+                            level={level + 1}
+                        />
+                    )}
+                </div>
+            ))}
+        </div>
+    );
+};
+
+const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
     const [status, setStatus] = useState<ConnectionStatus>('disconnected');
     const [host, setHost] = useState('127.0.0.1');
     const [port, setPort] = useState('22');
@@ -28,51 +72,95 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle }) => {
     const [errorMsg, setErrorMsg] = useState('');
     const [statusMessage, setStatusMessage] = useState('Not connected.');
     
-    const [localPath, setLocalPath] = useState('/');
-    const [remotePath, setRemotePath] = useState('.');
-    const [localItems, setLocalItems] = useState<FilesystemItem[]>([]);
-    const [remoteItems, setRemoteItems] = useState<FilesystemItem[]>([]);
-    
-    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item?: FilesystemItem; isLocal: boolean } | null>(null);
-    const [renamingItem, setRenamingItem] = useState<{ path: string; isLocal: boolean } | null>(null);
-    const [renameValue, setRenameValue] = useState('');
-    const [draggedItem, setDraggedItem] = useState<{ item: FilesystemItem; isLocal: boolean } | null>(null);
-    const [dropTarget, setDropTarget] = useState<{ path: string; isFolder: boolean; isLocal: boolean } | null>(null);
-    
+    // --- Tree State ---
+    const [localTree, setLocalTree] = useState<FilesystemItem[]>([]);
+    const [remoteTree, setRemoteTree] = useState<FilesystemItem[]>([]);
+    const [localExpanded, setLocalExpanded] = useState<Set<string>>(new Set(['/']));
+    const [remoteExpanded, setRemoteExpanded] = useState<Set<string>>(new Set(['.']));
+
+    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: FilesystemItem; isLocal: boolean } | null>(null);
     const ws = useRef<WebSocket | null>(null);
 
     useEffect(() => { setTitle(`SFTP - ${status}`); }, [setTitle, status]);
-
+    
+    // --- Data Fetching and Tree Management ---
     const sortItems = (items: FilesystemItem[]) => items.sort((a,b) => (a.type === b.type) ? a.name.localeCompare(b.name) : (a.type === 'folder' ? -1 : 1));
 
-    const refreshLocal = useCallback(async (path: string) => {
-        const items = await FsService.listDirectory(path);
-        setLocalItems(sortItems(items));
-    }, []);
+    const updateTreeData = (
+        currentTree: FilesystemItem[], 
+        path: string, 
+        children: FilesystemItem[]
+    ): FilesystemItem[] => {
+        const newTree = JSON.parse(JSON.stringify(currentTree)); // Deep copy
+        let currentLevel = newTree;
+        
+        if (path === '/' || path === '.') {
+            return sortItems(children);
+        }
 
-    const refreshRemote = useCallback((path: string) => {
-        if (ws.current?.readyState === WebSocket.OPEN) {
+        const pathParts = path.split('/').filter(p => p);
+        let currentPath = path.startsWith('/') ? '/' : '';
+
+        for (let i = 0; i < pathParts.length; i++) {
+            const part = pathParts[i];
+            currentPath = pathHelper.join(currentPath, part);
+            const node = currentLevel.find(item => item.path === currentPath);
+            if (node) {
+                if (i === pathParts.length - 1) {
+                    node.children = sortItems(children);
+                    break;
+                }
+                if (!node.children) node.children = [];
+                currentLevel = node.children;
+            } else {
+                break; 
+            }
+        }
+        return newTree;
+    };
+
+    const fetchAndExpand = useCallback(async (path: string, isLocal: boolean) => {
+        if (isLocal) {
+            const items = await FsService.listDirectory(path);
+            setLocalTree(currentTree => updateTreeData(currentTree, path, items));
+        } else if (ws.current?.readyState === WebSocket.OPEN) {
             setStatusMessage(`Listing directory ${path}...`);
             ws.current.send(JSON.stringify({ type: 'list', payload: { path } }));
         }
     }, []);
 
+    const handleFolderClick = useCallback((item: FilesystemItem, isLocal: boolean) => {
+        const expandedSet = isLocal ? localExpanded : remoteExpanded;
+        const setExpanded = isLocal ? setLocalExpanded : setRemoteExpanded;
+        const newExpanded = new Set(expandedSet);
+
+        if (expandedSet.has(item.path)) {
+            newExpanded.delete(item.path);
+        } else {
+            newExpanded.add(item.path);
+            fetchAndExpand(item.path, isLocal);
+        }
+        setExpanded(newExpanded);
+    }, [localExpanded, remoteExpanded, fetchAndExpand]);
+
+    // Initial load
     useEffect(() => {
         fetch('http://localhost:3001/api/os-user')
             .then(res => res.ok ? res.json() : Promise.resolve({ username: 'user' }))
             .then(data => setUsername(data.username || 'user'));
-        refreshLocal('/');
-    }, [refreshLocal]);
+        fetchAndExpand('/', true);
+    }, [fetchAndExpand]);
     
     useEffect(() => () => { ws.current?.close(); }, []);
-
+    
+    // --- Connection Handling ---
     const handleConnect = useCallback(() => {
         if (!host || !port || !username) { setErrorMsg('Host, Port, and Username are required.'); return; }
         setStatus('connecting'); setErrorMsg(''); setStatusMessage(`Connecting to ${host}...`);
 
         ws.current = new WebSocket('ws://localhost:3003');
         ws.current.onopen = () => ws.current?.send(JSON.stringify({ type: 'connect', payload: { host, port, username, password } }));
-        ws.current.onclose = () => { if (status !== 'error') { setStatus('disconnected'); setRemoteItems([]); setStatusMessage('Disconnected.'); }};
+        ws.current.onclose = () => { if (status !== 'error') { setStatus('disconnected'); setRemoteTree([]); setStatusMessage('Disconnected.'); }};
         ws.current.onerror = () => { const msg = 'Connection failed. Is the backend running?'; setErrorMsg(msg); setStatus('error'); setStatusMessage(msg);};
         ws.current.onmessage = (event) => {
             const msg = JSON.parse(event.data);
@@ -80,20 +168,21 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle }) => {
                 case 'status':
                     if (msg.payload === 'connected') {
                         setStatus('connected'); setPassword(''); setStatusMessage('Connected. Listing root...');
-                        refreshRemote('.'); // Start at home dir for remote
+                        fetchAndExpand('.', false); // Start at home dir for remote
                     } else {
                         setStatus('disconnected'); setStatusMessage('Disconnected.');
                     }
                     break;
                 case 'list':
                     setStatusMessage(`Listed ${msg.payload.path}`);
-                    setRemoteItems(sortItems(msg.payload.items));
-                    setRemotePath(msg.payload.path);
+                    setRemoteTree(currentTree => updateTreeData(currentTree, msg.payload.path, msg.payload.items));
+                    break;
+                case 'file_content':
+                    handleOpenFileInNotebook(msg.payload.path, msg.payload.content);
                     break;
                 case 'operation_success':
                     setStatusMessage(msg.payload.message);
-                    if (msg.payload.isLocal) refreshLocal(msg.payload.dirToRefresh);
-                    else refreshRemote(msg.payload.dirToRefresh);
+                    fetchAndExpand(msg.payload.dirToRefresh, msg.payload.isLocal);
                     break;
                 case 'error':
                     setErrorMsg(msg.payload); setStatus('error'); setStatusMessage(`Error: ${msg.payload}`);
@@ -101,248 +190,125 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle }) => {
                     break;
             }
         };
-    }, [host, port, username, password, status, refreshRemote]);
-
+    }, [host, port, username, password, status, fetchAndExpand]);
+    
     const handleDisconnect = useCallback(() => { ws.current?.close(); }, []);
-    
-    // --- UI Interaction Handlers ---
-    const handleItemDoubleClick = useCallback((item: FilesystemItem, isLocal: boolean) => {
-        if (item.type === 'folder') {
-            const newPath = isLocal ? pathHelper.join(localPath, item.name) : pathHelper.join(remotePath, item.name);
-            if (isLocal) { setLocalPath(newPath); refreshLocal(newPath); }
-            else refreshRemote(newPath);
+
+    // --- File Interaction Workflow ---
+    const handleRemoteSave = useCallback((remotePath: string, newContent: string) => {
+        if (ws.current?.readyState === WebSocket.OPEN) {
+            setStatusMessage(`Uploading changes to ${pathHelper.basename(remotePath)}...`);
+            ws.current.send(JSON.stringify({
+                type: 'upload',
+                payload: {
+                    remoteDir: pathHelper.dirname(remotePath),
+                    fileName: pathHelper.basename(remotePath),
+                    fileData: newContent,
+                    encoding: 'utf8' // Specify encoding
+                }
+            }));
+        } else {
+            alert("SFTP Connection lost. Could not save file to server.");
         }
-    }, [localPath, remotePath, refreshLocal, refreshRemote]);
-
-    const handlePathChange = useCallback((newPath: string, isLocal: boolean) => {
-        if(isLocal) setLocalPath(newPath); else setRemotePath(newPath);
     }, []);
-    
-    const handlePathRefresh = useCallback((isLocal: boolean) => {
-        if(isLocal) refreshLocal(localPath); else refreshRemote(remotePath);
-    }, [localPath, remotePath, refreshLocal, refreshRemote]);
 
-    // --- Context Menu Handlers ---
+    const handleOpenFileInNotebook = useCallback((remotePath: string, content: string) => {
+        if (!openApp) return;
+        setStatusMessage(`Opening ${remotePath} in Notebook...`);
+        openApp('notebook', {
+            initialData: {
+                fileName: pathHelper.basename(remotePath),
+                content: content,
+                onSave: (newContent: string) => handleRemoteSave(remotePath, newContent),
+            }
+        });
+    }, [openApp, handleRemoteSave]);
+    
+    const handleFileClick = useCallback((item: FilesystemItem, isLocal: boolean) => {
+        if (isLocal) {
+            openApp?.('notebook', { file: { path: item.path, name: item.name } });
+        } else {
+            if (ws.current?.readyState === WebSocket.OPEN) {
+                setStatusMessage(`Fetching content for ${item.name}...`);
+                ws.current.send(JSON.stringify({ type: 'get_content', payload: { path: item.path } }));
+            }
+        }
+    }, [openApp]);
+
+    // --- Context Menu and Actions ---
     const closeContextMenu = useCallback(() => setContextMenu(null), []);
     useEffect(() => {
         document.addEventListener('click', closeContextMenu);
         return () => document.removeEventListener('click', closeContextMenu);
     }, [closeContextMenu]);
     
-    const handlePaneContextMenu = useCallback((e: React.MouseEvent, isLocal: boolean) => {
-        e.preventDefault(); e.stopPropagation();
-        if ((e.target as HTMLElement).closest('button')) return;
-        setContextMenu({ x: e.clientX, y: e.clientY, isLocal });
-    }, []);
-
-    const handleItemContextMenu = useCallback((e: React.MouseEvent, item: FilesystemItem, isLocal: boolean) => {
+    const onItemContextMenu = useCallback((e: React.MouseEvent, item: FilesystemItem, isLocal: boolean) => {
         e.preventDefault(); e.stopPropagation();
         setContextMenu({ x: e.clientX, y: e.clientY, item, isLocal });
     }, []);
-
-    // --- Action Handlers ---
-    const handleUpload = useCallback(async (item: FilesystemItem) => {
-        if (ws.current?.readyState !== WebSocket.OPEN) return;
-        setStatusMessage(`Uploading ${item.name}...`);
-        const file = await FsService.readFileAsBase64(item.path);
-        if(file) {
-            ws.current.send(JSON.stringify({ type: 'upload', payload: { remoteDir: remotePath, fileName: item.name, fileData: file.content }}));
-        }
-    }, [remotePath]);
     
-    const handleDownload = useCallback((item: FilesystemItem) => {
-        if (ws.current?.readyState !== WebSocket.OPEN) return;
-        setStatusMessage(`Downloading ${item.name}...`);
-        ws.current.send(JSON.stringify({ type: 'download', payload: { remotePath: item.path, localDir: localPath, fileName: item.name }}));
-    }, [localPath]);
-
-    const handleCreate = useCallback(async (isFolder: boolean, isLocal: boolean) => {
+     const handleCreate = useCallback(async (isFolder: boolean, item: FilesystemItem, isLocal: boolean) => {
         const name = prompt(`Enter name for new ${isFolder ? 'folder' : 'file'}:`);
         if (!name) return;
-        const parentDir = isLocal ? localPath : remotePath;
+        const parentDir = item.path;
         setStatusMessage(`Creating ${name}...`);
 
         if(isLocal) {
             isFolder ? await FsService.createFolder(parentDir, name) : await FsService.createFile(parentDir, name, "");
-            refreshLocal(parentDir);
+            fetchAndExpand(parentDir, true);
         } else if (ws.current?.readyState === WebSocket.OPEN) {
             const type = isFolder ? 'create_folder' : 'create_file';
             ws.current.send(JSON.stringify({ type, payload: { parentDir, name } }));
         }
-    }, [localPath, remotePath, refreshLocal]);
+    }, [fetchAndExpand]);
 
-    const handleDelete = useCallback(async (item: FilesystemItem, isLocal: boolean) => {
-        if (!confirm(`Are you sure you want to delete "${item.name}"?`)) return;
-        setStatusMessage(`Deleting ${item.name}...`);
-        if(isLocal) {
-            await FsService.deleteItem(item);
-            refreshLocal(pathHelper.dirname(item.path));
-        } else if (ws.current?.readyState === WebSocket.OPEN) {
-            ws.current.send(JSON.stringify({ type: 'delete', payload: { item } }));
-        }
-    }, [refreshLocal]);
-    
-    const handleRenameStart = useCallback((item: FilesystemItem, isLocal: boolean) => {
-        setRenamingItem({ path: item.path, isLocal });
-        setRenameValue(item.name);
-    }, []);
-
-    const handleRenameSubmit = useCallback(async () => {
-        if (!renamingItem) return;
-        const parentDir = pathHelper.dirname(renamingItem.path);
-        const item = (renamingItem.isLocal ? localItems : remoteItems).find(i => i.path === renamingItem.path);
-        
-        if (item && renameValue && item.name !== renameValue) {
-            setStatusMessage(`Renaming ${item.name} to ${renameValue}...`);
-            if (renamingItem.isLocal) {
-                await FsService.renameItem(item, renameValue);
-                refreshLocal(parentDir);
-            } else if (ws.current?.readyState === WebSocket.OPEN) {
-                ws.current.send(JSON.stringify({ type: 'rename', payload: { item, newName: renameValue } }));
-            }
-        }
-        setRenamingItem(null);
-    }, [renamingItem, renameValue, localItems, remoteItems, refreshLocal]);
-    
-    // --- Drag and Drop Handlers ---
-    const onDragStart = useCallback((e: React.DragEvent, item: FilesystemItem, isLocal: boolean) => {
-        setDraggedItem({ item, isLocal });
-        e.dataTransfer.effectAllowed = 'move';
-    }, []);
-
-    const onDragOver = useCallback((e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }, []);
-
-    const onDragEnter = useCallback((e: React.DragEvent, item: FilesystemItem | null, isLocal: boolean) => {
-        e.preventDefault();
-        if (item) setDropTarget({ path: item.path, isFolder: item.type === 'folder', isLocal });
-        else setDropTarget({ path: isLocal ? localPath : remotePath, isFolder: true, isLocal });
-    }, [localPath, remotePath]);
-
-    const onDragLeave = useCallback((e: React.DragEvent) => {
-        // Basic check to prevent flickering when moving over child elements
-        if (! (e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
-             setDropTarget(null);
-        }
-    }, []);
-
-    const onDrop = useCallback(async (e: React.DragEvent, dropOnItem: FilesystemItem | null, isLocalPane: boolean) => {
-        e.preventDefault();
-        setDropTarget(null);
-        if (!draggedItem) return;
-        
-        const destFolder = dropOnItem && dropOnItem.type === 'folder' ? dropOnItem.path : (isLocalPane ? localPath : remotePath);
-        
-        // --- Prevent dropping file on itself or folder into itself ---
-        if (draggedItem.item.path === destFolder) return;
-        
-        // 1. Local to Remote (Upload)
-        if (draggedItem.isLocal && !isLocalPane) {
-            handleUpload(draggedItem.item);
-        }
-        // 2. Remote to Local (Download)
-        else if (!draggedItem.isLocal && isLocalPane) {
-            handleDownload(draggedItem.item);
-        }
-        // 3. Local to Local (Move)
-        else if (draggedItem.isLocal && isLocalPane) {
-            setStatusMessage(`Moving ${draggedItem.item.name}...`);
-            await FsService.moveItem(draggedItem.item, destFolder);
-            refreshLocal(localPath);
-            if(pathHelper.dirname(draggedItem.item.path) !== destFolder) refreshLocal(pathHelper.dirname(draggedItem.item.path));
-        }
-        // 4. Remote to Remote (Move)
-        else if (!draggedItem.isLocal && !isLocalPane) {
-             if (ws.current?.readyState === WebSocket.OPEN) {
-                const destPath = pathHelper.join(destFolder, draggedItem.item.name);
-                setStatusMessage(`Moving ${draggedItem.item.name}...`);
-                ws.current.send(JSON.stringify({ type: 'move', payload: { sourcePath: draggedItem.item.path, destPath } }));
-            }
-        }
-    }, [draggedItem, localPath, remotePath, handleUpload, handleDownload, refreshLocal]);
-    
     const contextMenuItems = useMemo<ContextMenuItem[]>(() => {
         if (!contextMenu) return [];
         const { item, isLocal } = contextMenu;
+        if (item.type !== 'folder') return []; // Only show context menu for folders for now
 
-        const menu: ContextMenuItem[] = [];
+        return [
+            { type: 'item', label: 'New Folder', onClick: () => handleCreate(true, item, isLocal) },
+            { type: 'item', label: 'New File', onClick: () => handleCreate(false, item, isLocal) },
+        ];
+    }, [contextMenu, handleCreate]);
 
-        if (item) { // Right-clicked on an item
-            if (isLocal) menu.push({ type: 'item', label: 'Upload', onClick: () => handleUpload(item), disabled: status !== 'connected' });
-            else menu.push({ type: 'item', label: 'Download', onClick: () => handleDownload(item), disabled: status !== 'connected' });
-            menu.push({ type: 'separator' });
-            menu.push({ type: 'item', label: 'Delete', onClick: () => handleDelete(item, isLocal) });
-            menu.push({ type: 'item', label: 'Rename', onClick: () => handleRenameStart(item, isLocal) });
-        } else { // Right-clicked on pane background
-            menu.push({ type: 'item', label: 'New Folder', onClick: () => handleCreate(true, isLocal) });
-            menu.push({ type: 'item', label: 'New File', onClick: () => handleCreate(false, isLocal) });
-            menu.push({ type: 'item', label: 'Refresh', onClick: () => isLocal ? refreshLocal(localPath) : refreshRemote(remotePath) });
-        }
-        return menu;
-    }, [contextMenu, handleUpload, handleDownload, handleDelete, handleRenameStart, handleCreate, localPath, remotePath, refreshLocal, refreshRemote, status]);
-    
+
     // --- RENDER ---
-    const FileListItem: React.FC<{ item: FilesystemItem; isLocal: boolean; }> = ({ item, isLocal }) => (
-        <button
-            draggable
-            onDragStart={(e) => onDragStart(e, item, isLocal)}
-            onDragEnter={(e) => onDragEnter(e, item, isLocal)}
-            onDragLeave={onDragLeave}
-            onDrop={(e) => onDrop(e, item, isLocal)}
-            onDoubleClick={() => handleItemDoubleClick(item, isLocal)}
-            onContextMenu={(e) => handleItemContextMenu(e, item, isLocal)}
-            className={`w-full flex items-center p-1 rounded text-left text-sm transition-colors duration-100
-            ${dropTarget?.path === item.path && dropTarget.isFolder ? 'bg-blue-500/50' : 'hover:bg-zinc-700/80'}
-            `}
-        >
-            {item.type === 'folder' 
-                ? <FolderIcon isSmall className="w-5 h-5 text-amber-400 mr-2 flex-shrink-0"/> 
-                : <FileGenericIcon isSmall className="w-5 h-5 text-zinc-400 mr-2 flex-shrink-0"/>
+    const buildTree = (
+        rootItems: FilesystemItem[], 
+        expandedPaths: Set<string>
+    ): FilesystemItem[] => {
+        const buildNode = (item: FilesystemItem): FilesystemItem => {
+            const newItem = { ...item };
+            if (expandedPaths.has(item.path) && item.children) {
+                newItem.children = item.children.map(buildNode);
+            } else {
+                delete newItem.children;
             }
-            <div className="flex-grow whitespace-nowrap overflow-hidden text-ellipsis">
-            {renamingItem?.path === item.path ? (
-                 <input 
-                    type="text" value={renameValue}
-                    onChange={e => setRenameValue(e.target.value)}
-                    onBlur={handleRenameSubmit} onKeyDown={e => e.key === 'Enter' && handleRenameSubmit()}
-                    className="text-sm bg-white text-black w-full" autoFocus onFocus={e => e.target.select()}
-                    onClick={e => e.stopPropagation()}
-                />
-            ) : (
-                <span>{item.name}</span>
-            )}
-            </div>
-            {item.size !== undefined && <span className="text-xs text-zinc-500 w-24 text-right flex-shrink-0 pr-2">{item.size}</span>}
-        </button>
-    );
+            return newItem;
+        };
+        return rootItems.map(buildNode);
+    };
+
+    const renderedLocalTree = useMemo(() => buildTree(localTree, localExpanded), [localTree, localExpanded]);
+    const renderedRemoteTree = useMemo(() => buildTree(remoteTree, remoteExpanded), [remoteTree, remoteExpanded]);
 
     const FileListPane: React.FC<{ isLocal: boolean }> = ({ isLocal }) => {
         const title = isLocal ? 'Local Site' : 'Remote Site';
-        const path = isLocal ? localPath : remotePath;
-        const items = isLocal ? localItems : remoteItems;
-
+        const tree = isLocal ? renderedLocalTree : renderedRemoteTree;
         return (
-            <div 
-                className={`flex flex-col h-full bg-black/50 rounded-md border-2 
-                ${dropTarget?.isLocal === isLocal && dropTarget.isFolder ? 'border-blue-500' : 'border-zinc-800'}`}
-                onDragOver={onDragOver}
-                onDragEnter={(e) => onDragEnter(e, null, isLocal)}
-                onDragLeave={onDragLeave}
-                onDrop={(e) => onDrop(e, null, isLocal)}
-                onContextMenu={(e) => handlePaneContextMenu(e, isLocal)}
-            >
+            <div className="flex flex-col h-full bg-black/50 rounded-md border border-zinc-800">
                 <div className="flex-shrink-0 p-2 border-b border-zinc-700">
                     <h3 className="font-semibold">{title}</h3>
-                    <input 
-                        type="text" value={path} 
-                        onChange={e => handlePathChange(e.target.value, isLocal)} 
-                        onKeyDown={e => e.key === 'Enter' && handlePathRefresh(isLocal)}
-                        className="w-full bg-zinc-900/50 text-xs p-1 rounded border border-zinc-700 focus:ring-1 focus:ring-blue-500" 
-                    />
                 </div>
-                <div className="flex-grow overflow-y-auto overflow-x-auto custom-scrollbar p-1">
-                    <div className="space-y-0.5 min-w-full w-max">
-                        {items.map(item => <FileListItem key={item.path} item={item} isLocal={isLocal} />)}
-                    </div>
+                <div className="flex-grow overflow-auto custom-scrollbar p-1">
+                     <FileTree 
+                        items={tree}
+                        onFileClick={(item) => handleFileClick(item, isLocal)}
+                        onFolderClick={(item) => handleFolderClick(item, isLocal)}
+                        onItemContextMenu={(e, item) => onItemContextMenu(e, item, isLocal)}
+                     />
                 </div>
             </div>
         );
@@ -365,10 +331,16 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle }) => {
             </div>
             {errorMsg && <div className="flex-shrink-0 text-center py-1 bg-red-800/50 text-red-300 text-xs">{errorMsg}</div>}
             
-            <div className="flex-grow grid grid-cols-2 gap-3 p-3">
-                <FileListPane isLocal={true} />
-                <FileListPane isLocal={false} />
-            </div>
+            {status !== 'connected' ? (
+                <div className="flex-grow flex items-center justify-center text-zinc-500">
+                    <p>Please connect to a server to begin.</p>
+                </div>
+            ) : (
+                <div className="flex-grow grid grid-cols-2 gap-3 p-3 overflow-hidden">
+                    <FileListPane isLocal={true} />
+                    <FileListPane isLocal={false} />
+                </div>
+            )}
             
             <div className="flex-shrink-0 h-10 border-t border-zinc-700 p-2 flex items-center text-xs">
                 <p className="font-semibold mr-2">Status:</p> <div className="flex-grow text-zinc-400 p-1 truncate">{statusMessage}</div>
