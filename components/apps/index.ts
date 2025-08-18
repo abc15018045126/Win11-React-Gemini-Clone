@@ -11,6 +11,7 @@ import { appDefinition as chromeAppDefinition } from './Chrome';
 import { appDefinition as chrome2AppDefinition } from './Chrome2';
 import { appDefinition as terminusAppDefinition } from './Terminus';
 import { appDefinition as sftpAppDefinition } from './SFTP';
+import { appDefinition as appStoreAppDefinition } from './AppStore';
 
 /**
  * The master list of all applications available in the OS.
@@ -20,6 +21,7 @@ import { appDefinition as sftpAppDefinition } from './SFTP';
  * 3. Import that definition here and add it to this array.
  */
 export const APP_DEFINITIONS: AppDefinition[] = [
+  appStoreAppDefinition,
   chrome2AppDefinition,
   sftpAppDefinition,
   terminusAppDefinition,

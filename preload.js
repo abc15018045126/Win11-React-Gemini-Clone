@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('fs:findUniqueName', destinationPath, baseName, isFolder, extension),
   createFolder: (path, name) => ipcRenderer.invoke('fs:createFolder', path, name),
   createFile: (path, name, content) => ipcRenderer.invoke('fs:createFile', path, name, content),
+  createAppShortcut: (appId, appName) => ipcRenderer.invoke('fs:createAppShortcut', appId, appName),
   deleteItem: (item) => ipcRenderer.invoke('fs:deleteItem', item),
   renameItem: (item, newName) => ipcRenderer.invoke('fs:renameItem', item, newName),
   moveItem: (sourceItem, destinationPath) => ipcRenderer.invoke('fs:moveItem', sourceItem, destinationPath),

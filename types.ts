@@ -82,6 +82,7 @@ export interface IElectronAPI {
   findUniqueName: (destinationPath: string, baseName: string, isFolder: boolean, extension?: string) => Promise<string>;
   createFolder: (path: string, name: string) => Promise<boolean>;
   createFile: (path: string, name: string, content: string) => Promise<boolean>;
+  createAppShortcut: (appId: string, appName: string) => Promise<boolean>;
   deleteItem: (item: FilesystemItem) => Promise<boolean>;
   renameItem: (item: FilesystemItem, newName: string) => Promise<boolean>;
   moveItem: (sourceItem: FilesystemItem, destinationPath: string) => Promise<boolean>;

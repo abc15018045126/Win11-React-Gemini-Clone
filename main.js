@@ -45,15 +45,11 @@ function setupInitialFilesystem() {
     // Create a readme in documents
     fs.writeFileSync(path.join(documentsPath, 'readme.txt'), 'This is your Documents folder.');
     
-    // Create default app shortcuts
+    // Create default app shortcuts for essential apps only
     const defaultApps = [
-        { appId: 'sftp', name: 'SFTP Client' },
-        { appId: 'terminus', name: 'Terminus' },
-        { appId: 'chrome', name: 'Chrome' },
-        { appId: 'geminiChat', name: 'Gemini Chat' },
+        { appId: 'appStore', name: 'App Store' },
         { appId: 'fileExplorer', name: 'File Explorer' },
-        { appId: 'hyper', name: 'Hyper' },
-        { appId: 'about', name: 'About This PC' },
+        { appId: 'settings', name: 'Settings' },
     ];
 
     defaultApps.forEach(app => {
@@ -147,11 +143,19 @@ ipcMain.handle('fs:listDirectory', async (event, relativePath) => {
             files.map(async (file) => {
                 const itemPath = path.join(dirPath, file);
                 const stats = await fs.promises.stat(itemPath);
-                return {
+                const item = {
                     name: file,
                     path: path.join(relativePath, file).replace(/\\/g, '/'),
                     type: stats.isDirectory() ? 'folder' : 'file',
                 };
+                // If it's an app shortcut, read its content to get the appId
+                if (file.endsWith('.app')) {
+                    try {
+                        const content = await fs.promises.readFile(itemPath, 'utf-8');
+                        item.content = content;
+                    } catch (e) { /* ignore read errors for content */ }
+                }
+                return item;
             })
         );
         return items;
@@ -219,6 +223,18 @@ ipcMain.handle('fs:createFile', async (event, relativePath, name, content) => {
         return true;
     } catch (error) {
         console.error(`Error creating file ${relativePath}/${name}:`, error);
+        return false;
+    }
+});
+
+ipcMain.handle('fs:createAppShortcut', async (event, appId, appName) => {
+    try {
+        const shortcutPath = safeJoin(`/Desktop/${appName}.app`);
+        const shortcutContent = JSON.stringify({ appId });
+        await fs.promises.writeFile(shortcutPath, shortcutContent, 'utf-8');
+        return true;
+    } catch (error) {
+        console.error(`Error creating app shortcut for ${appName}:`, error);
         return false;
     }
 });
