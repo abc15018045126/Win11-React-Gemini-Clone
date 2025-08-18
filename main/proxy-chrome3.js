@@ -1,14 +1,14 @@
-
 const WebSocket = require('ws');
 const net = require('net');
 const { createWebSocketStream } = require('ws');
 
-const LOCAL_PORT = 1081; // Using a non-standard port to avoid conflicts.
+const LOCAL_PORT = 1081;
 
-// Configuration for the remote WebSocket server, based on user-provided files.
+// Configuration based on various VLESS/xray config files found in the project.
 const config = {
     serverAddress: 'pages.cloudflare.com',
     serverPort: 443,
+    uuid: '2ea73714-138e-4cc7-8cab-d7caf476d51b', // This was missing and is essential for VLESS
     webSocketPath: '/proxyip=ProxyIP.US.CMLiussss.net',
     hostHeader: 'nless.abc15018045126.ip-dynamic.org'
 };
@@ -16,7 +16,7 @@ const config = {
 /**
  * Starts the proxy server for Chrome 3.
  * It listens locally as a SOCKS5 server and forwards traffic
- * to the remote WebSocket proxy server.
+ * to the remote VLESS WebSocket proxy server.
  */
 function startChrome3Proxy() {
     const server = net.createServer(clientSocket => {
@@ -57,57 +57,57 @@ function startChrome3Proxy() {
                 }
 
                 const headers = { 'User-Agent': 'Mozilla/5.0', 'Host': config.hostHeader };
-                const wsUrl = `wss://${config.serverAddress}:${config.serverPort}${config.webSocketPath}`;
+                const path = config.webSocketPath;
+                // URL-encode the path to handle special characters.
+                const encodedPath = path.startsWith('/') ? '/' + encodeURIComponent(path.substring(1)) : encodeURIComponent(path);
+                const wsUrl = `wss://${config.serverAddress}:${config.serverPort}${encodedPath}`;
                 
                 const remoteConnection = new WebSocket(wsUrl, { headers, rejectUnauthorized: false });
                 
                 const handleOpen = () => {
-                    const nlessVersion = Buffer.from([0x01]);
+                    // --- VLESS Header Construction ---
+                    const uuidBytes = Buffer.from(config.uuid.replace(/-/g, ''), 'hex');
                     const portBytes = Buffer.alloc(2);
                     portBytes.writeUInt16BE(remotePort);
-                    
-                    let atypNless, addrBytes;
-                    if (atyp === 0x01) {
-                        atypNless = Buffer.from([0x01]);
-                        addrBytes = Buffer.from(remoteAddr.split('.').map(s => parseInt(s, 10)));
-                    } else { // atyp === 0x03
-                        atypNless = Buffer.from([0x02]);
-                        const domainBytes = Buffer.from(remoteAddr, 'utf8');
-                        const lenByte = Buffer.alloc(1);
-                        lenByte.writeUInt8(domainBytes.length);
-                        addrBytes = Buffer.concat([lenByte, domainBytes]);
+
+                    const vlessHeaderPart1 = Buffer.concat([
+                        Buffer.from([0x00]), // Version
+                        uuidBytes,
+                        Buffer.from([0x00]), // Addon Length
+                        Buffer.from([0x01]), // Command (TCP)
+                        portBytes,
+                    ]);
+
+                    let vlessHeaderPart2;
+                    if (atyp === 0x01) { // IPv4
+                         vlessHeaderPart2 = Buffer.concat([Buffer.from([0x01]), data.slice(4, 8)]);
+                    } else { // Domain
+                         const addrBytes = Buffer.from(remoteAddr, 'utf8');
+                         const addrLenByte = Buffer.alloc(1);
+                         addrLenByte.writeUInt8(addrBytes.length);
+                         vlessHeaderPart2 = Buffer.concat([Buffer.from([0x02]), addrLenByte, addrBytes]);
                     }
+                    // The full VLESS header includes the initial data packet from the browser.
+                    const vlessHeader = Buffer.concat([vlessHeaderPart1, vlessHeaderPart2, initialData]);
+                    
+                    remoteConnection.send(vlessHeader);
 
-                    const header = Buffer.concat([nlessVersion, atypNless, addrBytes, portBytes, initialData]);
-                    remoteConnection.send(header);
+                    // Send SOCKS success reply to the browser
+                    const successResponse = Buffer.from([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+                    clientSocket.write(successResponse);
+                    
+                    // Begin piping data between the browser and the remote server
+                    const duplex = createWebSocketStream(remoteConnection, { readable: true, writable: true });
+                    clientSocket.pipe(duplex).pipe(clientSocket);
 
-                    remoteConnection.once('message', msg => {
-                        // The remote server should reply with [version, 0x00] on success
-                        if (Buffer.isBuffer(msg) && msg.length >= 2 && msg[1] === 0x00) {
-                            // Send SOCKS success reply to the browser
-                            const successResponse = Buffer.from([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
-                            clientSocket.write(successResponse);
-                            
-                            // Begin piping data
-                            const duplex = createWebSocketStream(remoteConnection, { readable: true, writable: true });
-                            clientSocket.pipe(duplex).pipe(clientSocket);
+                    const cleanup = () => {
+                        if (!clientSocket.destroyed) clientSocket.destroy();
+                        if (duplex && !duplex.destroyed) duplex.destroy();
+                        if (remoteConnection.readyState === WebSocket.OPEN) remoteConnection.close();
+                    };
 
-                            const cleanup = () => {
-                                if (!clientSocket.destroyed) clientSocket.destroy();
-                                if (duplex && !duplex.destroyed) duplex.destroy();
-                                if (remoteConnection.readyState === WebSocket.OPEN) remoteConnection.close();
-                            };
-
-                            clientSocket.on('error', cleanup);
-                            clientSocket.on('close', cleanup);
-                            duplex.on('error', cleanup);
-                            duplex.on('close', cleanup);
-                        } else {
-                            console.error('[CH3PRX] Remote server rejected connection.');
-                            clientSocket.end();
-                            remoteConnection.close();
-                        }
-                    });
+                    clientSocket.on('error', cleanup).on('close', cleanup);
+                    duplex.on('error', cleanup).on('close', cleanup);
                 };
                 
                 if (remoteConnection.readyState === WebSocket.OPEN) {
@@ -116,11 +116,12 @@ function startChrome3Proxy() {
                     remoteConnection.on('open', handleOpen);
                 }
 
-                const cleanupOnError = () => {
+                const cleanupOnError = (err) => {
+                    console.error('[CH3PRX] WebSocket connection error:', err.message);
                     if (!clientSocket.destroyed) clientSocket.destroy();
                 };
                 remoteConnection.on('error', cleanupOnError);
-                remoteConnection.on('close', cleanupOnError);
+                remoteConnection.on('close', () => { if (!clientSocket.destroyed) clientSocket.destroy() });
             }
         };
         clientSocket.on('data', onData);
@@ -136,7 +137,7 @@ function startChrome3Proxy() {
     });
 
     server.listen(LOCAL_PORT, '127.0.0.1', () => {
-        console.log(`✅ Chrome 3 Proxy listening on 127.0.0.1:${LOCAL_PORT}`);
+        console.log(`✅ Chrome 3 Proxy (VLESS) listening on 127.0.0.1:${LOCAL_PORT}`);
     });
 }
 
