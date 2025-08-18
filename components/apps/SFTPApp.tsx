@@ -4,6 +4,8 @@ import { FolderIcon, FileGenericIcon, SftpIcon } from '../../constants';
 import * as FsService from '../../services/filesystemService';
 import ContextMenu, { ContextMenuItem } from '../ContextMenu';
 
+const path = { posix: { join: (...args: string[]) => args.join('/').replace(/\/+/g, '/'), dirname: (p: string) => p.substring(0, p.lastIndexOf('/')) || '/' }};
+
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 interface FilesystemItem extends BaseFilesystemItem { size?: number; modified?: number; }
 interface DraggedItem { item: FilesystemItem; isLocal: boolean; }
@@ -165,22 +167,22 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle }) => {
 
     useEffect(() => { setTitle(`SFTP - ${status}`); }, [setTitle, status]);
 
+    const refreshLocal = useCallback(async (path: string) => {
+        const items = await FsService.listDirectory(path);
+        setLocalItems(items.sort((a,b) => (a.type === b.type) ? a.name.localeCompare(b.name) : (a.type === 'folder' ? -1 : 1)));
+    }, []);
+
     useEffect(() => {
         fetch('http://localhost:3001/api/os-user')
             .then(res => res.ok ? res.json() : Promise.resolve({ username: 'user' }))
             .then(data => setUsername(data.username || 'user'));
-        refreshLocal(localPath);
-    }, []);
+        refreshLocal('/');
+    }, [refreshLocal]);
 
     useEffect(() => {
         const closeMenu = () => setContextMenu(null);
         document.addEventListener('click', closeMenu);
         return () => { ws.current?.close(); document.removeEventListener('click', closeMenu); };
-    }, []);
-
-    const refreshLocal = useCallback(async (path: string) => {
-        const items = await FsService.listDirectory(path);
-        setLocalItems(items.sort((a,b) => (a.type === b.type) ? a.name.localeCompare(b.name) : (a.type === 'folder' ? -1 : 1)));
     }, []);
     
     const refreshRemote = useCallback((path: string) => {
@@ -224,7 +226,7 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle }) => {
                     break;
             }
         };
-    }, [host, port, username, password, status, remotePath, refreshRemote]);
+    }, [host, port, username, password, status, remotePath, refreshRemote, refreshLocal]);
 
     const handleDisconnect = () => { ws.current?.close(); };
 
@@ -371,6 +373,6 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle }) => {
         </div>
     );
 };
-const path = { posix: { join: (...args) => args.join('/').replace(/\/+/g, '/'), dirname: (p) => p.substring(0, p.lastIndexOf('/')) || '/' }};
+
 export const appDefinition: AppDefinition = { id: 'sftp', name: 'SFTP Client', icon: SftpIcon, component: SFTPApp, defaultSize: { width: 950, height: 650 } };
 export default SFTPApp;
