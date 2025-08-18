@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { OpenApp, AppDefinition, ClipboardItem, FilesystemItem } from './types';
 import { TASKBAR_HEIGHT, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT } from './constants';
@@ -58,12 +57,13 @@ const App: React.FC = () => {
     if (!appDef) return;
 
     if (appDef.isExternal && appDef.externalPath) {
-      if (window.electronAPI?.launchExternalApp) {
-        await window.electronAPI.launchExternalApp(appDef.externalPath);
+      if ((window as any).electronAPI?.launchExternalApp) {
+        (window as any).electronAPI.launchExternalApp(appDef.externalPath);
       } else {
-        console.warn('External app launch is not supported in this environment.');
-        alert(`This would launch the external app at: ${appDef.externalPath}`);
+        console.warn('External app launch API not available.');
+        alert('This feature is only available in the Electron version of the app.');
       }
+      setIsStartMenuOpen(false);
       return;
     }
 

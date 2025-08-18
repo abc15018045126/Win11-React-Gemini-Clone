@@ -37,7 +37,7 @@ const AppStoreApp: React.FC<AppComponentProps> = ({ setTitle, initialData }) => 
     }, [setTitle, fetchInstalledApps]);
 
     const handleInstall = async (app: AppDefinition) => {
-        const success = await window.electronAPI.createAppShortcut(app.id, app.name);
+        const success = await FsService.createAppShortcut(app.id, app.name);
         if (success) {
             // Refresh the desktop to show the new icon
             triggerRefresh?.();

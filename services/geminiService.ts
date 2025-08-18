@@ -10,15 +10,17 @@ const initializeAi = async () => {
   isInitializing = true;
   
   try {
-    // In an Electron app, the API key is securely handled in the main process
-    // and exposed via a preload script on the window object.
-    const apiKey = await window.electronAPI?.getApiKey();
+    const response = await fetch('/api/key');
+    if (!response.ok) {
+        throw new Error('Failed to fetch API key');
+    }
+    const { apiKey } = await response.json();
     
     if (apiKey) {
       ai = new GoogleGenAI({ apiKey });
     } else {
       console.warn(
-        "Gemini API key not found. Please set the API_KEY in your .env file. AI features will be disabled or return mock responses."
+        "Gemini API key not found. Please set the API_KEY in your .env file on the server. AI features will be disabled or return mock responses."
       );
     }
   } catch (error) {
@@ -37,7 +39,7 @@ export const generateGeminiResponse = async (prompt: string): Promise<string> =>
   if (!ai) {
     // Fallback or error message if API key is not available
     await new Promise(resolve => setTimeout(resolve, 500)); // Simulate delay
-    return "Gemini API is not configured. Please ensure the API_KEY environment variable is set. This is a mock response.";
+    return "Gemini API is not configured. Please ensure the API_KEY environment variable is set on the server. This is a mock response.";
   }
 
   try {

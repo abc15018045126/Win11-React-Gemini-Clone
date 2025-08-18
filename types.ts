@@ -1,4 +1,3 @@
-
 import { ReactNode } from 'react';
 
 export interface AppIconProps {
@@ -49,8 +48,8 @@ export interface AppDefinition {
   component: AppComponentType;
   defaultSize?: { width: number; height: number };
   isPinnedToTaskbar?: boolean; // To show on taskbar by default
-  isExternal?: boolean; // If true, this app is launched as a separate process
-  externalPath?: string; // Path to the external app's root directory
+  isExternal?: boolean; // To launch as a separate Electron process
+  externalPath?: string; // Path relative to app root for the external app
 }
 
 export interface OpenApp extends AppDefinition {
@@ -98,27 +97,4 @@ export interface Theme {
     borderActive: string;
     textColor: string;
   };
-}
-
-// --- Electron API Bridge Types ---
-export interface IElectronAPI {
-  getApiKey: () => Promise<string | undefined>;
-  listDirectory: (path: string) => Promise<FilesystemItem[]>;
-  readFile: (path: string) => Promise<ProjectFile | null>;
-  saveFile: (path: string, content: string) => Promise<boolean>;
-  findUniqueName: (destinationPath: string, baseName: string, isFolder: boolean, extension?: string) => Promise<string>;
-  createFolder: (path: string, name: string) => Promise<boolean>;
-  createFile: (path: string, name: string, content: string) => Promise<boolean>;
-  createAppShortcut: (appId: string, appName: string) => Promise<boolean>;
-  deleteItem: (item: FilesystemItem) => Promise<boolean>;
-  renameItem: (item: FilesystemItem, newName: string) => Promise<boolean>;
-  moveItem: (sourceItem: FilesystemItem, destinationPath: string) => Promise<boolean>;
-  copyItem: (sourceItem: FilesystemItem, destinationPath: string) => Promise<boolean>;
-  launchExternalApp: (path: string) => Promise<boolean>;
-}
-
-declare global {
-  interface Window {
-    electronAPI: IElectronAPI;
-  }
 }

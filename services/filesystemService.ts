@@ -1,77 +1,114 @@
 
 import { ProjectFile, FilesystemItem } from '../types';
 
-// This service is designed to work within an Electron environment.
-// It acts as a bridge to the Electron main process, which has access
-// to the real Node.js 'fs' module. The 'electronAPI' object is exposed
-// by a preload script (which is not part of this codebase).
+// This service communicates with the backend Node.js server via a REST API.
 
-const api = window.electronAPI;
-
-// If the Electron API is not available (e.g., running in a standard browser),
-// it falls back to a mock that logs actions and returns empty/default values.
-if (!api) {
-    console.warn(
-        "Electron API not found. Running in browser mode with a mock filesystem. " +
-        "File operations will not be performed."
-    );
+// Helper function to handle fetch requests and errors
+async function apiRequest<T>(endpoint: string, options?: RequestInit): Promise<T | null> {
+    try {
+        const response = await fetch(endpoint, options);
+        if (!response.ok) {
+            console.error(`API Error on ${endpoint}: ${response.status} ${response.statusText}`);
+            return null;
+        }
+        if (response.headers.get('Content-Type')?.includes('application/json')) {
+            return response.json() as Promise<T>;
+        }
+        return response as T;
+    } catch (error) {
+        console.error(`Network Error on ${endpoint}:`, error);
+        return null;
+    }
 }
 
-// A mock API to prevent the app from crashing when run in a browser.
-const mockApi = {
-    listDirectory: async (path: string): Promise<FilesystemItem[]> => {
-        console.log(`[Mock FS] listDirectory: ${path}`);
-        return [];
-    },
-    readFile: async (path: string): Promise<ProjectFile | null> => {
-        console.log(`[Mock FS] readFile: ${path}`);
-        return null;
-    },
-    saveFile: async (path: string, content: string): Promise<boolean> => {
-        console.log(`[Mock FS] saveFile: ${path}`);
-        return true;
-    },
-    findUniqueName: async (destinationPath: string, baseName: string, isFolder: boolean, extension: string = ''): Promise<string> => {
-        console.log(`[Mock FS] findUniqueName in ${destinationPath} for ${baseName}`);
-        return `${baseName}${extension}`;
-    },
-    createFolder: async (path: string, name: string): Promise<boolean> => {
-        console.log(`[Mock FS] createFolder: ${path}/${name}`);
-        return true;
-    },
-    createFile: async (path: string, name: string, content: string): Promise<boolean> => {
-        console.log(`[Mock FS] createFile: ${path}/${name}`);
-        return true;
-    },
-    deleteItem: async (item: FilesystemItem): Promise<boolean> => {
-        console.log(`[Mock FS] deleteItem: ${item.path}`);
-        return true;
-    },
-    renameItem: async (item: FilesystemItem, newName: string): Promise<boolean> => {
-        console.log(`[Mock FS] renameItem: ${item.path} to ${newName}`);
-        return true;
-    },
-    moveItem: async (sourceItem: FilesystemItem, destinationPath: string): Promise<boolean> => {
-        console.log(`[Mock FS] moveItem: ${sourceItem.path} to ${destinationPath}`);
-        return true;
-    },
-    copyItem: async (sourceItem: FilesystemItem, destinationPath: string): Promise<boolean> => {
-        console.log(`[Mock FS] copyItem: ${sourceItem.path} to ${destinationPath}`);
-        return true;
-    },
+// --- Exported API ---
+export const listDirectory = async (path: string): Promise<FilesystemItem[]> => {
+    const result = await apiRequest<FilesystemItem[]>(`/api/fs/list?path=${encodeURIComponent(path)}`);
+    return result || [];
 };
 
-const fsApi = api || mockApi;
+export const readFile = (path: string): Promise<ProjectFile | null> => {
+    return apiRequest<ProjectFile>(`/api/fs/read?path=${encodeURIComponent(path)}`);
+};
 
-// --- Exported API ---
-// These functions will either call the real Electron API or the mock filesystem.
-export const listDirectory = (path: string): Promise<FilesystemItem[]> => fsApi.listDirectory(path);
-export const readFile = (path: string): Promise<ProjectFile | null> => fsApi.readFile(path);
-export const saveFile = (path: string, content: string): Promise<boolean> => fsApi.saveFile(path, content);
-export const findUniqueName = (destinationPath: string, baseName: string, isFolder: boolean, extension: string = ''): Promise<string> => fsApi.findUniqueName(destinationPath, baseName, isFolder, extension || '');
-export const createFolder = (path: string, name: string): Promise<boolean> => fsApi.createFolder(path, name);
-export const createFile = (path: string, name: string, content: string): Promise<boolean> => fsApi.createFile(path, name, content);
-export const deleteItem = (item: FilesystemItem): Promise<boolean> => fsApi.deleteItem(item);
-export const renameItem = (item: FilesystemItem, newName: string): Promise<boolean> => fsApi.renameItem(item, newName);
-export const moveItem = (sourceItem: FilesystemItem, destinationPath: string): Promise<boolean> => fsApi.moveItem(sourceItem, destinationPath);
-export const copyItem = (sourceItem: FilesystemItem, destinationPath: string): Promise<boolean> => fsApi.copyItem(sourceItem, destinationPath);
+export const saveFile = async (path: string, content: string): Promise<boolean> => {
+    const result = await apiRequest(`/api/fs/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, content }),
+    });
+    return !!result;
+};
+
+export const findUniqueName = async (destinationPath: string, baseName: string, isFolder: boolean, extension: string = ''): Promise<string> => {
+    const result = await apiRequest<{ name: string }>(`/api/fs/findUniqueName`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ destinationPath, baseName, isFolder, extension }),
+    });
+    return result?.name || `${baseName}${extension}`;
+};
+
+export const createFolder = async (path: string, name: string): Promise<boolean> => {
+    const result = await apiRequest(`/api/fs/createFolder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, name }),
+    });
+    return !!result;
+};
+
+export const createFile = async (path: string, name: string, content: string): Promise<boolean> => {
+    const result = await apiRequest(`/api/fs/createFile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, name, content }),
+    });
+    return !!result;
+};
+
+export const createAppShortcut = async (appId: string, appName: string): Promise<boolean> => {
+    const result = await apiRequest(`/api/fs/createAppShortcut`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appId, appName })
+    });
+    return !!result;
+};
+
+
+export const deleteItem = async (item: FilesystemItem): Promise<boolean> => {
+    const result = await apiRequest(`/api/fs/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item }),
+    });
+    return !!result;
+};
+
+export const renameItem = async (item: FilesystemItem, newName: string): Promise<boolean> => {
+    const result = await apiRequest(`/api/fs/rename`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item, newName }),
+    });
+    return !!result;
+};
+
+export const moveItem = async (sourceItem: FilesystemItem, destinationPath: string): Promise<boolean> => {
+    const result = await apiRequest(`/api/fs/move`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceItem, destinationPath }),
+    });
+    return !!result;
+};
+
+export const copyItem = async (sourceItem: FilesystemItem, destinationPath: string): Promise<boolean> => {
+    const result = await apiRequest(`/api/fs/copy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceItem, destinationPath }),
+    });
+    return !!result;
+};
