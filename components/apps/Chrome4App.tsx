@@ -1,7 +1,8 @@
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import { AppDefinition, AppComponentProps } from '../../types';
-import { BrowserIcon, Browser4Icon } from '../../constants';
+import { Browser4Icon } from '../../constants';
 
 // --- SVG Icons for Browser Controls ---
 const BackIcon: React.FC = () => (
@@ -22,250 +23,93 @@ const Spinner: React.FC = () => (
         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
     </svg>
 );
-const CloseIcon: React.FC<{className?: string}> = ({className = "h-4 w-4"}) => (
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className={className}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-    </svg>
-);
-const PlusIcon: React.FC = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-);
 
-
-interface Tab {
-    id: string;
-    url: string;
-    history: string[];
-    historyIndex: number;
-    title: string;
-    isLoading: boolean;
-    favicon: string | null;
+// Define the type for the webview element to include Electron-specific properties
+interface WebViewElement extends HTMLElement {
+  loadURL(url: string): void;
+  getURL(): string;
+  getTitle(): string;
+  isLoading(): boolean;
+  canGoBack(): boolean;
+  canGoForward(): boolean;
+  goBack(): void;
+  goForward(): void;
+  reload(): void;
+  getWebContentsId(): number;
+  partition: string;
 }
 
-const NEW_TAB_PAGE = 'about:newtab';
-const isUrl = (str: string) => /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([/\w .-]*)*\/?$/.test(str) || str.startsWith('about:');
-
-const createNewTab = (url: string = NEW_TAB_PAGE): Tab => {
-    const id = `tab-${Date.now()}-${Math.random()}`;
-    return {
-        id,
-        url,
-        history: [url],
-        historyIndex: 0,
-        title: 'New Tab',
-        isLoading: false,
-        favicon: null,
-    };
-};
+const isUrl = (str: string) => /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([/\w .-]*)*\/?$/.test(str);
+const DEFAULT_URL = 'https://www.google.com';
 
 const Chrome4App: React.FC<AppComponentProps> = ({ setTitle: setWindowTitle }) => {
-    const [tabs, setTabs] = useState<Tab[]>([createNewTab()]);
-    const [activeTabId, setActiveTabId] = useState<string>(tabs[0].id);
-    const [inputValue, setInputValue] = useState('');
-    const iframeRef = useRef<HTMLIFrameElement>(null);
-    const addressBarRef = useRef<HTMLInputElement>(null);
-
-    const activeTab = tabs.find(t => t.id === activeTabId);
-
+    const [inputValue, setInputValue] = useState(DEFAULT_URL);
+    const [isLoading, setIsLoading] = useState(true);
+    const [canGoBack, setCanGoBack] = useState(false);
+    const [canGoForward, setCanGoForward] = useState(false);
+    const webviewRef = useRef<WebViewElement | null>(null);
+    const partition = `persist:chrome4`;
+    
     useEffect(() => {
-        setWindowTitle(activeTab ? `${activeTab.title} - Chrome 4` : 'Chrome 4');
-    }, [activeTab, setWindowTitle]);
-
-    useEffect(() => {
-        if (activeTab) {
-            setInputValue(activeTab.url === NEW_TAB_PAGE ? '' : activeTab.url);
-        }
-    }, [activeTab]);
-    
-    const updateTabState = useCallback((tabId: string, updates: Partial<Tab>) => {
-        setTabs(prevTabs => prevTabs.map(tab => tab.id === tabId ? { ...tab, ...updates } : tab));
-    }, []);
-
-    const reload = useCallback(() => {
-        if (!activeTab) return;
-        if (iframeRef.current) {
-            updateTabState(activeTab.id, { isLoading: true });
-            iframeRef.current.src = 'about:blank'; // Force reload
-            setTimeout(() => {
-                if(iframeRef.current && activeTab) iframeRef.current.src = activeTab.url;
-            }, 50);
-        }
-    }, [activeTab, updateTabState]);
-
-    const navigate = useCallback((urlOrQuery: string, tabId: string) => {
-        let input = urlOrQuery.trim();
-        if (input === '') return;
-        const tabToUpdate = tabs.find(t => t.id === tabId);
-        if (!tabToUpdate) return;
+        const webview = webviewRef.current;
+        if (!webview) return;
         
-        let newUrl: string;
-        // Use DuckDuckGo for search to avoid X-Frame-Options issues with Google/Bing
-        if (isUrl(input)) {
-            newUrl = !/^(https?|about):/i.test(input) ? `https://${input}` : input;
-        } else {
-            newUrl = `https://duckduckgo.com/?q=${encodeURIComponent(input)}`;
-        }
-        
-        if (tabToUpdate.history[tabToUpdate.historyIndex] === newUrl) {
-            reload(); // Just reload if URL is the same
-            return;
-        }
-
-        const newHistory = tabToUpdate.history.slice(0, tabToUpdate.historyIndex + 1);
-        newHistory.push(newUrl);
-        
-        updateTabState(tabId, {
-            url: newUrl,
-            history: newHistory,
-            historyIndex: newHistory.length - 1,
-            isLoading: !newUrl.startsWith('about:'),
-            title: newUrl.startsWith('about:') ? 'New Tab' : 'Loading...',
-        });
-
-    }, [tabs, updateTabState, reload]);
-
-    const goBack = useCallback(() => {
-        if (activeTab && activeTab.historyIndex > 0) {
-            const newHistoryIndex = activeTab.historyIndex - 1;
-            const newUrl = activeTab.history[newHistoryIndex];
-            updateTabState(activeTab.id, {
-                historyIndex: newHistoryIndex,
-                url: newUrl,
-                isLoading: !newUrl.startsWith('about:'),
-            });
-        }
-    }, [activeTab, updateTabState]);
-
-    const goForward = useCallback(() => {
-        if (activeTab && activeTab.historyIndex < activeTab.history.length - 1) {
-            const newHistoryIndex = activeTab.historyIndex + 1;
-            const newUrl = activeTab.history[newHistoryIndex];
-            updateTabState(activeTab.id, {
-                historyIndex: newHistoryIndex,
-                url: newUrl,
-                isLoading: !newUrl.startsWith('about:'),
-            });
-        }
-    }, [activeTab, updateTabState]);
-    
-    const addNewTab = useCallback(() => {
-        const newTab = createNewTab();
-        setTabs(prev => [...prev, newTab]);
-        setActiveTabId(newTab.id);
-        addressBarRef.current?.focus();
-    }, []);
-
-    const closeTab = useCallback((e: React.MouseEvent, tabId: string) => {
-        e.stopPropagation();
-        const tabIndex = tabs.findIndex(t => t.id === tabId);
-        let newTabs = tabs.filter(t => t.id !== tabId);
-
-        if (newTabs.length === 0) {
-            newTabs = [createNewTab()];
-            setActiveTabId(newTabs[0].id);
-        } else if (activeTabId === tabId) {
-            setActiveTabId(newTabs[Math.max(0, tabIndex - 1)].id);
-        }
-        setTabs(newTabs);
-
-    }, [tabs, activeTabId]);
-    
-    const handleAddressBarSubmit = (e: React.KeyboardEvent<HTMLInputElement>) => {
-        if (e.key === 'Enter' && activeTab) {
-            navigate(inputValue, activeTab.id);
-        }
-    };
-    
-    const handleIframeLoad = useCallback(() => {
-        if (activeTab) {
-            let title = "Page";
-            let favicon: string | null = null;
-            try {
-                if (iframeRef.current?.contentWindow) {
-                    title = iframeRef.current.contentWindow.document.title || new URL(activeTab.url).hostname;
-                    const link = iframeRef.current.contentWindow.document.querySelector<HTMLLinkElement>("link[rel~='icon']");
-                    favicon = link ? new URL(link.href, activeTab.url).href : null;
-                }
-            } catch (e) {
-                try {
-                    title = new URL(activeTab.url).hostname.replace(/^www\./, '');
-                } catch { title = 'Blocked Content'; }
+        const handleLoadStart = () => setIsLoading(true);
+        const handleLoadStop = () => {
+            setIsLoading(false);
+            const currentUrl = webview.getURL();
+            if (currentUrl && !currentUrl.startsWith('about:blank')) {
+                setWindowTitle(`${webview.getTitle()} - Chrome 4`);
+                setInputValue(currentUrl);
+            } else {
+                setWindowTitle(`New Tab - Chrome 4`);
             }
-            updateTabState(activeTab.id, { isLoading: false, title, favicon });
-        }
-    }, [activeTab, updateTabState]);
-
-    const renderContent = () => {
-        if (!activeTab) return null;
-        if (activeTab.url === NEW_TAB_PAGE) {
-            return (
-                 <div className="w-full h-full flex flex-col items-center justify-center text-zinc-400 bg-zinc-800">
-                    <div className="text-6xl font-sans font-bold mb-6 select-none">
-                        <span className="text-blue-500">G</span>
-                        <span className="text-red-500">o</span>
-                        <span className="text-yellow-500">o</span>
-                        <span className="text-blue-500">g</span>
-                        <span className="text-green-500">l</span>
-                        <span className="text-red-500">e</span>
-                    </div>
-                     <div className="w-full max-w-lg">
-                        <input
-                            type="text"
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' && (e.target as HTMLInputElement).value) {
-                                    navigate((e.target as HTMLInputElement).value, activeTab.id);
-                                }
-                            }}
-                            className="w-full bg-zinc-900 border border-zinc-700 rounded-full py-2.5 px-5 text-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none placeholder-zinc-500 text-white"
-                            placeholder="Search Google or type a URL"
-                            autoFocus
-                        />
-                     </div>
-                </div>
-            )
-        }
+            setCanGoBack(webview.canGoBack());
+            setCanGoForward(webview.canGoForward());
+        };
         
-        // Default to iframe for http/https URLs
-        return (
-             <iframe
-                ref={iframeRef}
-                src={activeTab.url}
-                className={`w-full h-full border-none bg-white`}
-                onLoad={handleIframeLoad}
-                sandbox="allow-forms allow-scripts allow-same-origin allow-presentation"
-                title="Browser Content"
-            ></iframe>
-        )
-    }
+        webview.addEventListener('did-start-loading', handleLoadStart);
+        webview.addEventListener('did-stop-loading', handleLoadStop);
+        webview.addEventListener('did-fail-load', handleLoadStop); // Also stop loading on failure
+        
+        // Load initial URL
+        if(webview.getURL() !== DEFAULT_URL) {
+            webview.loadURL(DEFAULT_URL);
+        } else {
+            handleLoadStop();
+        }
+
+        return () => {
+            webview.removeEventListener('did-start-loading', handleLoadStart);
+            webview.removeEventListener('did-stop-loading', handleLoadStop);
+            webview.removeEventListener('did-fail-load', handleLoadStop);
+        };
+    }, [setWindowTitle]);
+
+    const navigate = (input: string) => {
+        const webview = webviewRef.current;
+        if (!webview) return;
+        let newUrl = input.trim();
+        if (isUrl(newUrl)) {
+            newUrl = !/^https?:\/\//i.test(newUrl) ? `https://${newUrl}` : newUrl;
+        } else {
+            newUrl = `https://duckduckgo.com/?q=${encodeURIComponent(newUrl)}`;
+        }
+        webview.loadURL(newUrl);
+    };
+
+    const handleAddressBarSubmit = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') navigate(inputValue);
+    };
 
     return (
         <div className="flex flex-col h-full bg-zinc-800 text-white select-none">
-            <div className="flex-shrink-0 flex items-end bg-zinc-900/80 pt-1.5">
-                {tabs.map(tab => (
-                    <div
-                        key={tab.id}
-                        onClick={() => setActiveTabId(tab.id)}
-                        className={`flex items-center px-3 py-2 border-b-2 -mb-px rounded-t-md max-w-[200px] cursor-pointer relative group ${
-                            tab.id === activeTabId ? 'bg-zinc-800 border-blue-500' : 'bg-zinc-900/50 border-transparent hover:bg-zinc-700'
-                        }`}
-                        title={tab.title}
-                    >
-                        {tab.favicon && <img src={tab.favicon} alt="" className="w-4 h-4 mr-2" />}
-                        {!tab.favicon && <BrowserIcon isSmall className="w-4 h-4 mr-2 text-zinc-400" />}
-                        <span className="text-xs truncate flex-grow">{tab.title}</span>
-                        <button onClick={(e) => closeTab(e, tab.id)} className="ml-2 p-0.5 rounded-full hover:bg-zinc-600 flex-shrink-0 group-hover:opacity-100 opacity-50"><CloseIcon className="w-3 h-3"/></button>
-                    </div>
-                ))}
-                <button onClick={addNewTab} className="p-2.5 mb-px hover:bg-zinc-700 rounded-t-md"><PlusIcon /></button>
-            </div>
-
             <div className="flex-shrink-0 flex items-center p-1.5 bg-zinc-800 border-b border-zinc-700 space-x-1">
-                <button onClick={goBack} disabled={!activeTab || activeTab.historyIndex === 0} className="p-1.5 rounded-full hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed" title="Back"><BackIcon /></button>
-                <button onClick={goForward} disabled={!activeTab || activeTab.historyIndex >= activeTab.history.length - 1} className="p-1.5 rounded-full hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed" title="Forward"><ForwardIcon /></button>
-                <button onClick={reload} disabled={!activeTab} className="p-1.5 rounded-full hover:bg-zinc-700 disabled:opacity-30" title="Reload">{activeTab?.isLoading && !activeTab.url.startsWith('about:') ? <Spinner /> : <RefreshIcon />}</button>
-                <button onClick={() => activeTab && navigate(NEW_TAB_PAGE, activeTab.id)} disabled={!activeTab} className="p-1.5 rounded-full hover:bg-zinc-700 disabled:opacity-30" title="Home"><HomeIcon /></button>
+                <button onClick={() => webviewRef.current?.goBack()} disabled={!canGoBack} className="p-1.5 rounded-full hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed" title="Back"><BackIcon /></button>
+                <button onClick={() => webviewRef.current?.goForward()} disabled={!canGoForward} className="p-1.5 rounded-full hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed" title="Forward"><ForwardIcon /></button>
+                <button onClick={() => webviewRef.current?.reload()} className="p-1.5 rounded-full hover:bg-zinc-700 disabled:opacity-30" title="Reload">{isLoading ? <Spinner /> : <RefreshIcon />}</button>
+                <button onClick={() => webviewRef.current?.loadURL(DEFAULT_URL)} className="p-1.5 rounded-full hover:bg-zinc-700 disabled:opacity-30" title="Home"><HomeIcon /></button>
                 <input
-                    ref={addressBarRef}
                     type="text"
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
@@ -273,16 +117,26 @@ const Chrome4App: React.FC<AppComponentProps> = ({ setTitle: setWindowTitle }) =
                     onFocus={(e) => e.target.select()}
                     className="flex-grow bg-zinc-900 border border-zinc-700 rounded-full py-1.5 px-4 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none placeholder-zinc-400"
                     placeholder="Search or enter address"
-                    disabled={!activeTab}
                 />
             </div>
 
             <div className="flex-grow relative bg-black">
-                {renderContent()}
+                {window.electronAPI ? (
+                    React.createElement('webview', {
+                        ref: webviewRef,
+                        src: "about:blank",
+                        className: "w-full h-full border-none bg-white",
+                        partition: partition,
+                        allowpopups: true
+                    })
+                ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-zinc-900 text-zinc-400">
+                        This feature is only available in the Electron version of the app.
+                    </div>
+                )}
             </div>
-
-            <div className="flex-shrink-0 text-xs px-2 py-0.5 bg-zinc-900/80 border-t border-zinc-700 text-zinc-400 truncate">
-                {activeTab?.isLoading ? 'Loading...' : `Note: Some websites may not load due to security policies (X-Frame-Options).`}
+             <div className="flex-shrink-0 text-xs px-2 py-0.5 bg-zinc-900/80 border-t border-zinc-700 text-zinc-400 truncate">
+                {isLoading ? 'Loading...' : `This browser can display sites with strict security policies.`}
             </div>
         </div>
     );

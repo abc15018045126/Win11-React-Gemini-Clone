@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AppDefinition, AppComponentProps } from '../../types';
 import { Browser3Icon } from '../../constants';
@@ -47,7 +48,7 @@ const Chrome3App: React.FC<AppComponentProps> = ({ setTitle: setWindowTitle, app
     const [canGoBack, setCanGoBack] = useState(false);
     const [canGoForward, setCanGoForward] = useState(false);
     const webviewRef = useRef<WebViewElement | null>(null);
-    const partition = `persist:browser3_${appInstanceId}`;
+    const partition = `persist:chrome3`;
     
     // Setup proxy and event listeners for the webview
     useEffect(() => {
@@ -56,13 +57,16 @@ const Chrome3App: React.FC<AppComponentProps> = ({ setTitle: setWindowTitle, app
 
         const setupProxy = async () => {
              try {
+                // The main process now handles header stripping. This proxy setup remains
+                // for routing traffic if needed by the SOCKS proxy.
                 await window.electronAPI?.setProxyForSession(partition, {
-                    proxyRules: "socks5://127.0.0.1:1081", // Use new port to avoid conflict
+                    proxyRules: "socks5://127.0.0.1:1081",
                 });
-                console.log(`Proxy set for partition ${partition} with rules: socks5://127.0.0.1:1081`);
+                console.log(`Chrome 3: Proxy set for partition ${partition}`);
                 webview.loadURL(url); // Load initial URL after proxy is set
             } catch (e) {
                 console.error("Failed to set proxy:", e);
+                 webview.loadURL(url); // Load even if proxy fails
             }
         };
 
@@ -127,11 +131,13 @@ const Chrome3App: React.FC<AppComponentProps> = ({ setTitle: setWindowTitle, app
 
             <div className="flex-grow relative bg-black">
                 {window.electronAPI ? (
-                    <webview
-                        ref={webviewRef as any}
-                        className="w-full h-full border-none bg-white"
-                        {...{ partition: partition, allowpopups: true }}
-                    />
+                    React.createElement('webview', {
+                        ref: webviewRef,
+                        src: "about:blank",
+                        className: "w-full h-full border-none bg-white",
+                        partition: partition,
+                        allowpopups: "true"
+                    })
                 ) : (
                     <div className="w-full h-full flex items-center justify-center bg-zinc-900 text-zinc-400">
                         This feature is only available in the Electron version of the app.
