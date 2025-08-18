@@ -112,7 +112,7 @@ const NotebookApp: React.FC<AppComponentProps> = ({ setTitle, initialData }) => 
              // Default to a new, empty document
             handleNew();
         }
-    }, [initialData]);
+    }, [initialData?.file?.path, initialData?.content, initialData?.fileName]);
 
     const updateStatusBar = useCallback(() => {
         const textarea = textareaRef.current;
