@@ -56,6 +56,7 @@ app.whenReady().then(() => {
     // Re-enabling header stripping for Chrome 4. Its absence may be causing renderer
     // crashes on sites with aggressive anti-embedding policies.
     setupHeaderStripping('persist:chrome4');
+    setupHeaderStripping('persist:chrome5');
 
     const frameBusterPath = path.join(__dirname, 'frame-buster.js');
 
@@ -72,6 +73,10 @@ app.whenReady().then(() => {
         const chrome4Session = session.fromPartition('persist:chrome4');
         chrome4Session.setPreloads([frameBusterPath]);
         console.log(`[Main] Frame-buster preload script set for partition 'persist:chrome4'`);
+
+        const chrome5Session = session.fromPartition('persist:chrome5');
+        chrome5Session.setPreloads([frameBusterPath]);
+        console.log(`[Main] Frame-buster preload script set for partition 'persist:chrome5'`);
     } catch (error) {
         console.error(`[Main] Failed to set preload scripts:`, error);
     }
