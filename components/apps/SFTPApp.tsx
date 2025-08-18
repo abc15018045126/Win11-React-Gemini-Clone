@@ -29,7 +29,7 @@ const FileListItem: React.FC<{ item: FilesystemItem, onToggleExpand: () => void,
             ? <FolderIcon isSmall className="w-5 h-5 text-amber-400 mr-2 flex-shrink-0"/> 
             : <FileGenericIcon isSmall className="w-5 h-5 text-zinc-400 mr-2 flex-shrink-0"/>
         }
-        <span className="truncate flex-grow">{item.name}</span>
+        <span className="flex-grow whitespace-nowrap">{item.name}</span>
         {item.size !== undefined && <span className="text-xs text-zinc-500 w-24 text-right flex-shrink-0 pr-2">{item.size}</span>}
     </button>
 );
@@ -50,8 +50,8 @@ const FileListPane: React.FC<{
                 <h3 className="font-semibold">{title}</h3>
                 <p className="text-xs text-zinc-400 truncate flex-grow">{items[0]?.path ? path.dirname(items[0].path) : '/'}</p>
             </div>
-            <div className="flex-grow overflow-auto custom-scrollbar p-1">
-                <div className="space-y-0.5">
+            <div className="flex-grow overflow-y-auto overflow-x-auto custom-scrollbar p-1">
+                <div className="space-y-0.5 min-w-full w-max">
                     {items.map(item => (
                         <FileListItem 
                             key={item.path} 
