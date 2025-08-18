@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { OpenApp, ClipboardItem, FilesystemItem } from '../types';
 import { CloseIcon, MinimizeIcon, MaximizeIcon, RestoreIcon, TASKBAR_HEIGHT } from '../constants';
@@ -11,7 +10,7 @@ interface AppWindowProps {
   onMaximize: () => void;
   onFocus: () => void;
   onDrag: (instanceId: string, position: { x: number; y: number }) => void;
-  onResize: (instanceId: string, size: { width: number; height: number }) => void; // Resizing not fully implemented
+  onResize: (instanceId: string, size: { width: number; height: number }) => void;
   isActive: boolean;
   desktopRef: React.RefObject<HTMLDivElement>;
   onSetTitle: (newTitle: string) => void;
@@ -30,7 +29,7 @@ const AppWindow: React.FC<AppWindowProps> = ({
   onMaximize,
   onFocus,
   onDrag,
-  // onResize, // For future use
+  onResize,
   isActive,
   desktopRef,
   onSetTitle,
@@ -42,13 +41,17 @@ const AppWindow: React.FC<AppWindowProps> = ({
   handlePaste,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
-  const [dragStartPos, setDragStartPos] = useState({ x: 0, y: 0 }); // Mouse position at drag start
-  const [initialWinPos, setInitialWinPos] = useState({ x: 0, y: 0 }); // Window position at drag start
+  const [dragStartPos, setDragStartPos] = useState({ x: 0, y: 0 });
+  const [initialWinPos, setInitialWinPos] = useState({ x: 0, y: 0 });
+  
+  const [isResizing, setIsResizing] = useState<string | null>(null);
+  const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0, winX: 0, winY: 0 });
+
   const windowRef = useRef<HTMLDivElement>(null);
   const { theme } = useTheme();
 
   const handleMouseDownHeader = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (app.isMaximized) return; // Don't drag if maximized
+    if (app.isMaximized || isResizing) return;
     if ((e.target as HTMLElement).closest('button')) return;
 
     onFocus();
@@ -57,9 +60,23 @@ const AppWindow: React.FC<AppWindowProps> = ({
     setInitialWinPos(app.position);
   };
 
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!isDragging || app.isMaximized) return;
+  const handleMouseDownResize = (e: React.MouseEvent<HTMLDivElement>, direction: string) => {
+    if (app.isMaximized) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onFocus();
+    setIsResizing(direction);
+    setResizeStart({
+      x: e.clientX,
+      y: e.clientY,
+      width: app.size.width,
+      height: app.size.height,
+      winX: app.position.x,
+      winY: app.position.y,
+    });
+  };
 
+  const handleMouseMoveDrag = useCallback((e: MouseEvent) => {
     const dx = e.clientX - dragStartPos.x;
     const dy = e.clientY - dragStartPos.y;
     
@@ -69,30 +86,75 @@ const AppWindow: React.FC<AppWindowProps> = ({
     const desktopWidth = desktopRef.current?.clientWidth || window.innerWidth;
     const desktopHeight = (desktopRef.current?.clientHeight || window.innerHeight) - TASKBAR_HEIGHT;
     const windowWidth = windowRef.current?.offsetWidth || app.size.width;
-
-    newX = Math.max(0, Math.min(newX, desktopWidth - windowWidth));
+    
+    // Allow dragging slightly off-screen for a better feel
+    newX = Math.max(-windowWidth + 50, Math.min(newX, desktopWidth - 50));
     newY = Math.max(0, Math.min(newY, desktopHeight - 30));
 
     onDrag(app.instanceId, { x: newX, y: newY });
-  }, [isDragging, dragStartPos, initialWinPos, app.instanceId, onDrag, app.isMaximized, app.size.width, desktopRef]);
+  }, [dragStartPos, initialWinPos, app.instanceId, onDrag, app.size.width, desktopRef]);
 
-  const handleMouseUp = useCallback(() => {
-    setIsDragging(false);
-  }, []);
+  const handleMouseMoveResize = useCallback((e: MouseEvent) => {
+    const dx = e.clientX - resizeStart.x;
+    const dy = e.clientY - resizeStart.y;
+    
+    let newWidth = resizeStart.width;
+    let newHeight = resizeStart.height;
+    let newX = resizeStart.winX;
+    let newY = resizeStart.winY;
+
+    const MIN_WIDTH = 250;
+    const MIN_HEIGHT = 150;
+
+    if (isResizing?.includes('right')) {
+        newWidth = Math.max(MIN_WIDTH, resizeStart.width + dx);
+    }
+    if (isResizing?.includes('left')) {
+        const calculatedWidth = resizeStart.width - dx;
+        if (calculatedWidth >= MIN_WIDTH) {
+            newWidth = calculatedWidth;
+            newX = resizeStart.winX + dx;
+        }
+    }
+    if (isResizing?.includes('bottom')) {
+        newHeight = Math.max(MIN_HEIGHT, resizeStart.height + dy);
+    }
+    if (isResizing?.includes('top')) {
+        const calculatedHeight = resizeStart.height - dy;
+        if (calculatedHeight >= MIN_HEIGHT) {
+            newHeight = calculatedHeight;
+            newY = resizeStart.winY + dy;
+        }
+    }
+    
+    onResize(app.instanceId, { width: newWidth, height: newHeight });
+    if (newX !== app.position.x || newY !== app.position.y) {
+        onDrag(app.instanceId, { x: newX, y: newY });
+    }
+  }, [isResizing, resizeStart, app.instanceId, app.position, onResize, onDrag]);
+
 
   useEffect(() => {
-    if (isDragging) {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDragging && !app.isMaximized) handleMouseMoveDrag(e);
+      if (isResizing && !app.isMaximized) handleMouseMoveResize(e);
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      setIsResizing(null);
+    };
+
+    if (isDragging || isResizing) {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
-    } else {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
     }
+    
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging, handleMouseMove, handleMouseUp]);
+  }, [isDragging, isResizing, handleMouseMoveDrag, handleMouseMoveResize, app.isMaximized]);
   
   const AppComponent = app.component;
 
@@ -115,10 +177,24 @@ const AppWindow: React.FC<AppWindowProps> = ({
         width: `${app.size.width}px`,
         height: `${app.size.height}px`,
         zIndex: app.zIndex,
-        transition: isDragging ? 'none' : 'left 0.1s ease-out, top 0.1s ease-out, width 0.2s ease-out, height 0.2s ease-out, opacity 0.15s ease-in-out',
+        transition: isDragging || isResizing ? 'none' : 'left 0.1s ease-out, top 0.1s ease-out, width 0.2s ease-out, height 0.2s ease-out, opacity 0.15s ease-in-out',
       }}
       onMouseDown={onFocus}
     >
+      {/* Resize Handles */}
+      {!app.isMaximized && (
+        <>
+          <div className="absolute -left-1 top-0 bottom-0 w-2 cursor-ew-resize z-10" onMouseDown={e => handleMouseDownResize(e, 'left')} />
+          <div className="absolute -right-1 top-0 bottom-0 w-2 cursor-ew-resize z-10" onMouseDown={e => handleMouseDownResize(e, 'right')} />
+          <div className="absolute -top-1 left-0 right-0 h-2 cursor-ns-resize z-10" onMouseDown={e => handleMouseDownResize(e, 'top')} />
+          <div className="absolute -bottom-1 left-0 right-0 h-2 cursor-ns-resize z-10" onMouseDown={e => handleMouseDownResize(e, 'bottom')} />
+          <div className="absolute -left-1 -top-1 w-3 h-3 cursor-nwse-resize z-10" onMouseDown={e => handleMouseDownResize(e, 'top-left')} />
+          <div className="absolute -right-1 -top-1 w-3 h-3 cursor-nesw-resize z-10" onMouseDown={e => handleMouseDownResize(e, 'top-right')} />
+          <div className="absolute -left-1 -bottom-1 w-3 h-3 cursor-nesw-resize z-10" onMouseDown={e => handleMouseDownResize(e, 'bottom-left')} />
+          <div className="absolute -right-1 -bottom-1 w-3 h-3 cursor-nwse-resize z-10" onMouseDown={e => handleMouseDownResize(e, 'bottom-right')} />
+        </>
+      )}
+
       <div
         className={`flex items-center justify-between h-8 px-3 ${app.isMaximized ? '' : 'cursor-grab'} select-none ${theme.appWindow.header} ${theme.appWindow.textColor}`}
         onMouseDown={handleMouseDownHeader}
