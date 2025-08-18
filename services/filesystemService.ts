@@ -38,6 +38,18 @@ export const readFile = async (path: string): Promise<ProjectFile | null> => {
     }
 };
 
+export const readFileAsBase64 = async (path: string): Promise<ProjectFile | null> => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/read-base64?path=${encodeURIComponent(path)}`);
+        // The content will be a base64 string. The ProjectFile type is compatible.
+        return await handleResponse<ProjectFile>(response);
+    } catch (e) {
+        console.error('Network error in readFileAsBase64:', e);
+        return null;
+    }
+};
+
+
 export const saveFile = async (path: string, content: string): Promise<boolean> => {
     try {
         const response = await fetch(`${API_BASE_URL}/save`, {

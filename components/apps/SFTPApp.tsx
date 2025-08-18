@@ -1,7 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback, Fragment } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { AppComponentProps, AppDefinition, FilesystemItem as BaseFilesystemItem } from '../../types';
 import { FolderIcon, FileGenericIcon, SftpIcon } from '../../constants';
 import * as FsService from '../../services/filesystemService';
+import ContextMenu, { ContextMenuItem } from '../ContextMenu';
+
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
@@ -18,9 +20,18 @@ const TreeArrow: React.FC<{ depth: number, isExpanded: boolean, isFolder: boolea
     </div>
 );
 
-const FileListItem: React.FC<{ item: FilesystemItem, onToggleExpand: () => void, onDoubleClick: () => void, isExpanded: boolean }> = 
-({ item, onToggleExpand, onDoubleClick, isExpanded }) => (
-    <button onDoubleClick={onDoubleClick} className="w-full flex items-center p-1 hover:bg-zinc-700 rounded text-left text-sm">
+const FileListItem: React.FC<{ 
+    item: FilesystemItem, 
+    onToggleExpand: () => void, 
+    onDoubleClick: () => void, 
+    isExpanded: boolean,
+    onContextMenu: (e: React.MouseEvent) => void,
+    isRenaming: boolean,
+    renameValue: string,
+    onRenameChange: (val: string) => void,
+    onRenameSubmit: () => void
+}> = ({ item, onToggleExpand, onDoubleClick, isExpanded, onContextMenu, isRenaming, renameValue, onRenameChange, onRenameSubmit }) => (
+    <button onDoubleClick={onDoubleClick} onContextMenu={onContextMenu} className="w-full flex items-center p-1 hover:bg-zinc-700 rounded text-left text-sm">
         <TreeArrow depth={item.depth} isExpanded={isExpanded} isFolder={item.type === 'folder'} onClick={(e) => {
             e.stopPropagation();
             if (item.type === 'folder') onToggleExpand();
@@ -29,7 +40,23 @@ const FileListItem: React.FC<{ item: FilesystemItem, onToggleExpand: () => void,
             ? <FolderIcon isSmall className="w-5 h-5 text-amber-400 mr-2 flex-shrink-0"/> 
             : <FileGenericIcon isSmall className="w-5 h-5 text-zinc-400 mr-2 flex-shrink-0"/>
         }
-        <span className="flex-grow whitespace-nowrap">{item.name}</span>
+        <div className="flex-grow whitespace-nowrap overflow-hidden">
+            {isRenaming ? (
+                 <input 
+                    type="text"
+                    value={renameValue}
+                    onChange={e => onRenameChange(e.target.value)}
+                    onBlur={onRenameSubmit}
+                    onKeyDown={e => { if (e.key === 'Enter') onRenameSubmit(); if(e.key === 'Escape') onRenameChange(item.name); }}
+                    className="text-sm text-black bg-white w-full border border-blue-500"
+                    autoFocus
+                    onFocus={e => e.target.select()}
+                    onClick={e => e.stopPropagation()}
+                />
+            ) : (
+                <span className="flex-grow whitespace-nowrap">{item.name}</span>
+            )}
+        </div>
         {item.size !== undefined && <span className="text-xs text-zinc-500 w-24 text-right flex-shrink-0 pr-2">{item.size}</span>}
     </button>
 );
@@ -38,14 +65,19 @@ const FileListItem: React.FC<{ item: FilesystemItem, onToggleExpand: () => void,
 const FileListPane: React.FC<{ 
     title: string, 
     items: FilesystemItem[],
-    onNavigate: (path: string) => void,
     onItemDoubleClick: (item: FilesystemItem) => void,
     onToggleExpand: (item: FilesystemItem) => void,
     expandedPaths: Set<string>,
-}> = ({ title, items, onNavigate, onItemDoubleClick, onToggleExpand, expandedPaths }) => {
+    onItemContextMenu: (e: React.MouseEvent, item: FilesystemItem) => void,
+    onBackgroundContextMenu: (e: React.MouseEvent) => void,
+    renamingPath: string | null,
+    renameValue: string,
+    onRenameChange: (val: string) => void,
+    onRenameSubmit: () => void
+}> = ({ title, items, onItemDoubleClick, onToggleExpand, expandedPaths, onItemContextMenu, onBackgroundContextMenu, renamingPath, renameValue, onRenameChange, onRenameSubmit }) => {
     
     return (
-        <div className="flex flex-col h-full bg-black/50 rounded-md border border-zinc-800">
+        <div className="flex flex-col h-full bg-black/50 rounded-md border border-zinc-800" onContextMenu={onBackgroundContextMenu}>
             <div className="flex-shrink-0 p-2 border-b border-zinc-700">
                 <h3 className="font-semibold">{title}</h3>
                 <p className="text-xs text-zinc-400 truncate flex-grow">{items[0]?.path ? path.dirname(items[0].path) : '/'}</p>
@@ -59,6 +91,11 @@ const FileListPane: React.FC<{
                             onDoubleClick={() => onItemDoubleClick(item)}
                             onToggleExpand={() => onToggleExpand(item)}
                             isExpanded={expandedPaths.has(item.path)}
+                            onContextMenu={(e) => onItemContextMenu(e, item)}
+                            isRenaming={renamingPath === item.path}
+                            renameValue={renameValue}
+                            onRenameChange={onRenameChange}
+                            onRenameSubmit={onRenameSubmit}
                         />
                     ))}
                 </div>
@@ -84,8 +121,13 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
     const [expandedLocal, setExpandedLocal] = useState(new Set<string>());
     const [expandedRemote, setExpandedRemote] = useState(new Set<string>());
 
+    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item?: FilesystemItem; isLocal: boolean, dirPath: string } | null>(null);
+    const [renamingItem, setRenamingItem] = useState<{ path: string, isLocal: boolean } | null>(null);
+    const [renameValue, setRenameValue] = useState('');
+
     const ws = useRef<WebSocket | null>(null);
 
+    // --- Effects ---
     useEffect(() => {
         setTitle(`SFTP - ${status}`);
     }, [setTitle, status]);
@@ -99,34 +141,71 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
     }, []);
 
     useEffect(() => {
+        const closeMenu = () => setContextMenu(null);
+        document.addEventListener('click', closeMenu);
         return () => {
             ws.current?.close();
+            document.removeEventListener('click', closeMenu);
         };
     }, []);
 
+    // --- Data Fetching & State Refreshing ---
+    const refreshDirectory = useCallback((dirPath: string, isLocal: boolean) => {
+        const [items, expanded, setExpanded, setItems, fetchFiles] = isLocal 
+            ? [localItems, expandedLocal, setExpandedLocal, setLocalItems, fetchLocalFiles]
+            : [remoteItems, expandedRemote, setExpandedRemote, setRemoteItems, fetchRemoteFiles];
+
+        const dirItem = items.find(i => i.path === dirPath);
+
+        // If it's a root path or not found (which it shouldn't be), just refetch the root
+        if (!dirItem || (isLocal && dirPath === '/') || (!isLocal && dirPath === '.')) {
+            isLocal ? fetchLocalFiles(dirPath, true) : fetchRemoteFiles(dirPath);
+            return;
+        }
+
+        if (expanded.has(dirPath)) {
+            // Collapse: remove children
+            setItems(prevItems => {
+                const parentIndex = prevItems.findIndex(it => it.path === dirPath);
+                if (parentIndex === -1) return prevItems;
+                let endIndex = parentIndex + 1;
+                while(endIndex < prevItems.length && prevItems[endIndex].depth > dirItem.depth) {
+                    endIndex++;
+                }
+                const newItems = [...prevItems];
+                newItems.splice(parentIndex + 1, endIndex - (parentIndex + 1));
+                return newItems;
+            });
+            
+            // Re-expand after a short delay to fetch new children
+            setTimeout(() => fetchFiles(dirPath, false), 50);
+        }
+    }, [localItems, remoteItems, expandedLocal, expandedRemote]);
+
     const fetchLocalFiles = useCallback(async (path: string, isRoot = false) => {
         const newItems = await FsService.listDirectory(path);
-        const enhancedItems = newItems.map(item => ({...item, depth: path.split('/').length - 1}));
-
+        const enhancedItems = newItems.map(item => ({...item, depth: (path.match(/\//g) || []).length - (path === '/' ? 1: 0) + 1}));
+    
         if (isRoot) {
-            setLocalItems(enhancedItems);
+            setLocalItems(enhancedItems.map(i => ({...i, depth: 0})));
         } else {
             setLocalItems(prev => {
                 const parentIndex = prev.findIndex(it => it.path === path);
                 const newArr = [...prev];
-                newArr.splice(parentIndex + 1, 0, ...enhancedItems);
+                if(parentIndex !== -1) newArr.splice(parentIndex + 1, 0, ...enhancedItems);
                 return newArr;
             });
         }
     }, []);
     
-    const fetchRemoteFiles = useCallback((path: string) => {
+    const fetchRemoteFiles = useCallback((path: string, isRoot = false) => {
         if (ws.current?.readyState === WebSocket.OPEN) {
             setStatusMessage(`Listing directory ${path}...`);
-            ws.current.send(JSON.stringify({ type: 'list', payload: path }));
+            ws.current.send(JSON.stringify({ type: 'list', payload: { path, isRoot } }));
         }
     }, []);
-    
+
+    // --- WebSocket Connection ---
     const handleConnect = useCallback(() => {
         if (!host || !port || !username || !password) {
             setErrorMsg('All connection fields are required.');
@@ -150,7 +229,7 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
                         setStatus('connected');
                         setPassword('');
                         setStatusMessage('Connection established. Listing root directory...');
-                        fetchRemoteFiles(remotePath);
+                        fetchRemoteFiles(remotePath, true);
                     } else {
                         setStatus('disconnected');
                         setStatusMessage('Disconnected.');
@@ -160,15 +239,15 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
                     setStatusMessage(`Directory listing successful for ${msg.payload.path}`);
                      const newChildren = msg.payload.items
                         .sort((a,b) => (a.type === b.type) ? a.name.localeCompare(b.name) : (a.type === 'folder' ? -1 : 1))
-                        .map(child => ({...child, depth: (msg.payload.path.match(/\//g) || []).length + (msg.payload.path === '.' ? 0 : 1)}));
+                        .map(child => ({...child, depth: (msg.payload.path.match(/[\\/]/g) || []).length + (msg.payload.path === '.' ? 0 : 1)}));
 
-                    if (msg.payload.path === '.') {
-                        setRemoteItems(newChildren.map(c => ({...c, depth: 0})));
+                    if (msg.payload.isRoot) {
+                         setRemoteItems(newChildren.map(c => ({...c, depth: 0})));
                     } else {
                         setRemoteItems(prev => {
                             const parentIndex = prev.findIndex(it => it.path === msg.payload.path);
                             const newArr = [...prev];
-                            newArr.splice(parentIndex + 1, 0, ...newChildren);
+                            if(parentIndex !== -1) newArr.splice(parentIndex + 1, 0, ...newChildren);
                             return newArr;
                         });
                     }
@@ -176,6 +255,10 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
                 case 'download_complete':
                     setStatusMessage(`Downloaded ${path.basename(msg.payload.remotePath)}. Opening...`);
                     openApp?.('notebook', { file: { path: msg.payload.localPath } });
+                    break;
+                case 'operation_success':
+                    setStatusMessage(msg.payload.message);
+                    refreshDirectory(msg.payload.dirToRefresh, false);
                     break;
                 case 'upload_status':
                     if (msg.payload.status === 'started') {
@@ -209,26 +292,24 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
                 setStatusMessage('Disconnected.');
             }
         };
-    }, [host, port, username, password, remotePath, status, fetchRemoteFiles, openApp]);
+    }, [host, port, username, password, remotePath, status, fetchRemoteFiles, openApp, refreshDirectory]);
 
     const handleDisconnect = () => {
         ws.current?.send(JSON.stringify({ type: 'disconnect' }));
         ws.current?.close();
     };
 
+    // --- UI Actions & Handlers ---
     const handleToggleExpand = (item: FilesystemItem, isLocal: boolean) => {
         const [expanded, setExpanded, fetchFiles, setItems] = isLocal 
             ? [expandedLocal, setExpandedLocal, fetchLocalFiles, setLocalItems]
             : [expandedRemote, setExpandedRemote, fetchRemoteFiles, setRemoteItems];
 
         if (expanded.has(item.path)) {
-            setExpanded(prev => {
-                const newSet = new Set(prev);
-                newSet.delete(item.path);
-                return newSet;
-            });
+            setExpanded(prev => { const newSet = new Set(prev); newSet.delete(item.path); return newSet; });
             setItems(prevItems => {
                 const parentIndex = prevItems.findIndex(it => it.path === item.path);
+                if(parentIndex === -1) return prevItems;
                 let endIndex = parentIndex + 1;
                 while(endIndex < prevItems.length && prevItems[endIndex].depth > item.depth) {
                     endIndex++;
@@ -239,7 +320,7 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
             });
         } else {
             setExpanded(prev => new Set(prev).add(item.path));
-            fetchFiles(item.path);
+            fetchFiles(item.path, false);
         }
     };
 
@@ -253,9 +334,108 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
             openApp?.('notebook', { file: { path: item.path } });
         }
     };
+    
+    // --- Context Menu Handlers ---
+    const handleItemContextMenu = (e: React.MouseEvent, item: FilesystemItem, isLocal: boolean) => {
+        e.preventDefault(); e.stopPropagation();
+        setContextMenu({ x: e.clientX, y: e.clientY, item, isLocal, dirPath: item.type === 'folder' ? item.path : path.dirname(item.path) });
+    };
+
+    const handleBackgroundContextMenu = (e: React.MouseEvent, isLocal: boolean) => {
+        e.preventDefault(); e.stopPropagation();
+        const dirPath = isLocal ? localPath : remotePath;
+        setContextMenu({ x: e.clientX, y: e.clientY, isLocal, dirPath });
+    };
+
+    const handleUpload = async (item: FilesystemItem, remoteDir: string) => {
+        if (item.type === 'folder') {
+            setStatusMessage('Folder uploads not supported yet.'); return;
+        }
+        setStatusMessage(`Reading ${item.name} for upload...`);
+        const file = await FsService.readFileAsBase64(item.path);
+        if (file && file.content) {
+            ws.current?.send(JSON.stringify({ type: 'upload', payload: { remoteDir, fileName: item.name, fileData: file.content }}));
+            setStatusMessage(`Uploading ${item.name} to ${remoteDir}...`);
+        } else {
+            setStatusMessage(`Error: Could not read local file ${item.name}.`);
+        }
+    };
+
+    const handleNewItem = async (isLocal: boolean, isFolder: boolean, parentDir: string) => {
+        const type = isFolder ? 'folder' : 'file';
+        const name = window.prompt(`Enter name for new ${type}:`);
+        if (!name) return;
+    
+        if (isLocal) {
+            isFolder ? await FsService.createFolder(parentDir, name) : await FsService.createFile(parentDir, name, "");
+            refreshDirectory(parentDir, true);
+        } else {
+            const messageType = isFolder ? 'create_folder' : 'create_file';
+            ws.current?.send(JSON.stringify({ type: messageType, payload: { parentDir, name } }));
+        }
+    };
+
+    const handleDeleteItem = async (item: FilesystemItem, isLocal: boolean) => {
+        if (!window.confirm(`Are you sure you want to delete ${item.name}?`)) return;
+        if (isLocal) {
+            await FsService.deleteItem(item);
+            refreshDirectory(path.dirname(item.path), true);
+        } else {
+            ws.current?.send(JSON.stringify({ type: 'delete_item', payload: { item } }));
+        }
+    };
+
+    const handleRenameSubmit = async () => {
+        if (!renamingItem) return;
+        const { path: itemPath, isLocal } = renamingItem;
+        const items = isLocal ? localItems : remoteItems;
+        const item = items.find(i => i.path === itemPath);
+
+        if (item && renameValue && item.name !== renameValue) {
+            if (isLocal) {
+                await FsService.renameItem(item, renameValue);
+                refreshDirectory(path.dirname(item.path), true);
+            } else {
+                ws.current?.send(JSON.stringify({ type: 'rename_item', payload: { item, newName: renameValue } }));
+            }
+        }
+        setRenamingItem(null);
+    };
+
+    const contextMenuItems = useMemo<ContextMenuItem[]>(() => {
+        if (!contextMenu) return [];
+        const { item, isLocal, dirPath } = contextMenu;
+        
+        let items: ContextMenuItem[] = [];
+
+        if (item) { // Clicked on an item
+            if (isLocal) {
+                if (item.type === 'file') items.push({ type: 'item', label: 'Open', onClick: () => openApp?.('notebook', { file: { path: item.path } }) });
+                items.push({ type: 'item', label: 'Upload', onClick: () => handleUpload(item, remotePath), disabled: status !== 'connected' || item.type === 'folder' });
+            } else {
+                if (item.type === 'file') items.push({ type: 'item', label: 'Download & Edit', onClick: () => handleItemDoubleClick(item, false) });
+            }
+            items.push({ type: 'item', label: 'Delete', onClick: () => handleDeleteItem(item, isLocal) });
+            items.push({ type: 'item', label: 'Rename', onClick: () => { setRenamingItem({ path: item.path, isLocal }); setRenameValue(item.name); }});
+        }
+        
+        if(item && item.type === 'folder') items.push({ type: 'separator' });
+        
+        // Actions for the directory (either clicked folder or background)
+        if(dirPath) {
+            items.push({ type: 'item', label: 'New File', onClick: () => handleNewItem(isLocal, false, dirPath) });
+            items.push({ type: 'item', label: 'New Folder', onClick: () => handleNewItem(isLocal, true, dirPath) });
+        }
+        
+        items.push({ type: 'separator' });
+        items.push({ type: 'item', label: 'Refresh', onClick: () => refreshDirectory(dirPath || (isLocal ? localPath : remotePath), isLocal) });
+
+        return items;
+    }, [contextMenu, status, remotePath, localPath, openApp, refreshDirectory]);
+
 
     return (
-        <div className="flex flex-col h-full bg-zinc-900 text-white">
+        <div className="flex flex-col h-full bg-zinc-900 text-white" onClick={() => setContextMenu(null)}>
             <div className="flex-shrink-0 flex items-center space-x-2 text-sm p-2 border-b border-zinc-700">
                 <span>Host:</span>
                 <input type="text" value={host} onChange={e => setHost(e.target.value)} disabled={status === 'connecting' || status === 'connected'} className="w-32 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 disabled:bg-zinc-800/50"/>
@@ -276,22 +456,32 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
             
             {errorMsg && <div className="flex-shrink-0 text-center py-1 bg-red-800/50 text-red-300 text-xs">{errorMsg}</div>}
 
-            <div className="flex-grow grid grid-cols-2 gap-3 p-3">
+            <div className="flex-grow grid grid-cols-2 gap-3 p-3 overflow-hidden">
                 <FileListPane 
                     title="Local Site" 
                     items={localItems}
-                    onNavigate={(p) => { /* Not used for tree view */ }}
                     onItemDoubleClick={(item) => handleItemDoubleClick(item, true)}
                     onToggleExpand={(item) => handleToggleExpand(item, true)}
                     expandedPaths={expandedLocal}
+                    onItemContextMenu={(e, item) => handleItemContextMenu(e, item, true)}
+                    onBackgroundContextMenu={(e) => handleBackgroundContextMenu(e, true)}
+                    renamingPath={renamingItem?.isLocal ? renamingItem.path : null}
+                    renameValue={renameValue}
+                    onRenameChange={setRenameValue}
+                    onRenameSubmit={handleRenameSubmit}
                 />
                  <FileListPane 
                     title="Remote Site" 
                     items={remoteItems}
-                    onNavigate={(p) => { /* Not used for tree view */ }}
                     onItemDoubleClick={(item) => handleItemDoubleClick(item, false)}
                     onToggleExpand={(item) => handleToggleExpand(item, false)}
                     expandedPaths={expandedRemote}
+                    onItemContextMenu={(e, item) => handleItemContextMenu(e, item, false)}
+                    onBackgroundContextMenu={(e) => handleBackgroundContextMenu(e, false)}
+                    renamingPath={!renamingItem?.isLocal ? renamingItem?.path : null}
+                    renameValue={renameValue}
+                    onRenameChange={setRenameValue}
+                    onRenameSubmit={handleRenameSubmit}
                 />
             </div>
             
@@ -299,20 +489,31 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
                 <p className="font-semibold mr-2">Status:</p>
                 <div className="flex-grow text-zinc-400 p-1 truncate">{statusMessage}</div>
             </div>
+
+            {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} items={contextMenuItems} onClose={() => setContextMenu(null)} />}
         </div>
     );
 };
 
 // Dummy path utils for frontend
 const path = {
-    basename: (p: string) => p.split('/').pop() || '',
+    basename: (p: string) => p.split(/[\\/]/).pop() || '',
     dirname: (p: string) => {
-        if (p === '/') return '/';
-        const lastSlash = p.lastIndexOf('/');
+        if (p === '/' || p === '.') return p;
+        const lastSlash = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
         if (lastSlash === -1) return '.';
         if (lastSlash === 0) return '/';
         return p.substring(0, lastSlash);
     },
+    join: (...args: string[]) => {
+        // A simplified path join that handles both Unix and Windows separators
+        const parts = args.flatMap(part => part.split(/[\\/]/)).filter(p => p && p !== '.');
+        const first = args[0] || '';
+        const isAbsolute = first.startsWith('/') || /^[a-zA-Z]:/.test(first);
+        let result = parts.join('/');
+        if(isAbsolute) result = '/' + result;
+        return result.replace(/\/+/g, '/');
+    }
 };
 
 export const appDefinition: AppDefinition = {
