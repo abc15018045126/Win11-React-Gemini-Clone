@@ -9,7 +9,7 @@ const { initializeIpcHandlers } = require('./ipc');
 const { startApiServer } = require('./api');
 const { startTerminusServer } = require('./ws-terminus');
 const { startSftpServer } = require('./ws-sftp');
-const { startWsProxyServer } = require('./proxy-chrome3'); // Import the new WebSocket proxy server
+const { startChrome3Proxy } = require('./proxy-chrome3'); // Import the new SOCKS5 proxy client
 
 function createWindow() {
     const mainWindow = new BrowserWindow({
@@ -44,7 +44,7 @@ app.whenReady().then(() => {
     startApiServer();
     startTerminusServer();
     startSftpServer();
-    startWsProxyServer(); // Start the new WebSocket proxy server on application launch
+    startChrome3Proxy(); // Start the new SOCKS5 proxy client for Chrome 3
 
     createWindow();
 
