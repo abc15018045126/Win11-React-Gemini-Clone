@@ -1,3 +1,4 @@
+
 import React, { useEffect } from 'react';
 import { AppDefinition, AppComponentProps } from '../../types';
 import { Browser3Icon } from '../../constants';
