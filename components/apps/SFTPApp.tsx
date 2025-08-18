@@ -276,7 +276,7 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
             
             {errorMsg && <div className="flex-shrink-0 text-center py-1 bg-red-800/50 text-red-300 text-xs">{errorMsg}</div>}
 
-            <div className="flex-grow grid grid-cols-2 gap-3 overflow-hidden p-3">
+            <div className="flex-grow grid grid-cols-2 gap-3 p-3">
                 <FileListPane 
                     title="Local Site" 
                     items={localItems}
@@ -306,7 +306,13 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
 // Dummy path utils for frontend
 const path = {
     basename: (p: string) => p.split('/').pop() || '',
-    dirname: (p: string) => p.substring(0, p.lastIndexOf('/')) || '/',
+    dirname: (p: string) => {
+        if (p === '/') return '/';
+        const lastSlash = p.lastIndexOf('/');
+        if (lastSlash === -1) return '.';
+        if (lastSlash === 0) return '/';
+        return p.substring(0, lastSlash);
+    },
 };
 
 export const appDefinition: AppDefinition = {
