@@ -49,6 +49,17 @@ export const readFileAsBase64 = async (path: string): Promise<ProjectFile | null
     }
 };
 
+export const downloadFile = async (path: string): Promise<Blob | null> => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/download?path=${encodeURIComponent(path)}`);
+        if (!response.ok) return null;
+        return response.blob();
+    } catch (e) {
+        console.error('Network error in downloadFile:', e);
+        return null;
+    }
+};
+
 
 export const saveFile = async (path: string, content: string): Promise<boolean> => {
     try {

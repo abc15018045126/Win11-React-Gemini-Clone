@@ -4,50 +4,45 @@ import { FolderIcon, FileGenericIcon, SftpIcon } from '../../constants';
 import * as FsService from '../../services/filesystemService';
 import ContextMenu, { ContextMenuItem } from '../ContextMenu';
 
-
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
-
-interface FilesystemItem extends BaseFilesystemItem {
-    depth: number;
-    size?: number;
-    modified?: number;
-}
-
-const TreeArrow: React.FC<{ depth: number, isExpanded: boolean, isFolder: boolean, onClick: (e: React.MouseEvent) => void }> = 
-({ depth, isExpanded, isFolder, onClick }) => (
-    <div style={{ paddingLeft: `${depth * 16}px` }} className="flex-shrink-0 w-8 text-center" onClick={onClick}>
-        {isFolder && (isExpanded ? '▾' : '▸')}
-    </div>
-);
+interface FilesystemItem extends BaseFilesystemItem { size?: number; modified?: number; }
+interface DraggedItem { item: FilesystemItem; isLocal: boolean; }
 
 const FileListItem: React.FC<{ 
     item: FilesystemItem, 
-    onToggleExpand: () => void, 
     onDoubleClick: () => void, 
-    isExpanded: boolean,
     onContextMenu: (e: React.MouseEvent) => void,
     isRenaming: boolean,
     renameValue: string,
     onRenameChange: (val: string) => void,
-    onRenameSubmit: () => void
-}> = ({ item, onToggleExpand, onDoubleClick, isExpanded, onContextMenu, isRenaming, renameValue, onRenameChange, onRenameSubmit }) => (
-    <button onDoubleClick={onDoubleClick} onContextMenu={onContextMenu} className="w-full flex items-center p-1 hover:bg-zinc-700 rounded text-left text-sm">
-        <TreeArrow depth={item.depth} isExpanded={isExpanded} isFolder={item.type === 'folder'} onClick={(e) => {
-            e.stopPropagation();
-            if (item.type === 'folder') onToggleExpand();
-        }} />
+    onRenameSubmit: () => void,
+    onDragStart: (e: React.DragEvent, item: FilesystemItem) => void,
+    onDragOver: (e: React.DragEvent) => void,
+    onDrop: (e: React.DragEvent, item: FilesystemItem) => void,
+    isDropTarget: boolean,
+}> = ({ item, onDoubleClick, onContextMenu, isRenaming, renameValue, onRenameChange, onRenameSubmit, onDragStart, onDragOver, onDrop, isDropTarget }) => (
+    <div 
+        draggable
+        onDragStart={(e) => onDragStart(e, item)}
+        onDragOver={onDragOver}
+        onDrop={(e) => onDrop(e, item)}
+        onDoubleClick={onDoubleClick} 
+        onContextMenu={onContextMenu} 
+        className={`w-full flex items-center p-1 hover:bg-zinc-700/80 rounded text-left text-sm transition-colors duration-100
+                    ${isDropTarget ? 'bg-blue-600/50 ring-1 ring-blue-400' : ''}`}
+    >
         {item.type === 'folder' 
             ? <FolderIcon isSmall className="w-5 h-5 text-amber-400 mr-2 flex-shrink-0"/> 
             : <FileGenericIcon isSmall className="w-5 h-5 text-zinc-400 mr-2 flex-shrink-0"/>
         }
-        <div className="flex-grow whitespace-nowrap overflow-hidden">
+        <div className="flex-grow whitespace-nowrap overflow-hidden text-ellipsis">
             {isRenaming ? (
                  <input 
                     type="text"
                     value={renameValue}
                     onChange={e => onRenameChange(e.target.value)}
                     onBlur={onRenameSubmit}
-                    onKeyDown={e => { if (e.key === 'Enter') onRenameSubmit(); if(e.key === 'Escape') onRenameChange(item.name); }}
+                    onKeyDown={e => { if (e.key === 'Enter') onRenameSubmit(); if(e.key === 'Escape') onRenameSubmit(); }}
                     className="text-sm text-black bg-white w-full border border-blue-500"
                     autoFocus
                     onFocus={e => e.target.select()}
@@ -58,44 +53,87 @@ const FileListItem: React.FC<{
             )}
         </div>
         {item.size !== undefined && <span className="text-xs text-zinc-500 w-24 text-right flex-shrink-0 pr-2">{item.size}</span>}
-    </button>
+    </div>
 );
 
 
 const FileListPane: React.FC<{ 
-    title: string, 
-    items: FilesystemItem[],
-    onItemDoubleClick: (item: FilesystemItem) => void,
-    onToggleExpand: (item: FilesystemItem) => void,
-    expandedPaths: Set<string>,
-    onItemContextMenu: (e: React.MouseEvent, item: FilesystemItem) => void,
-    onBackgroundContextMenu: (e: React.MouseEvent) => void,
-    renamingPath: string | null,
-    renameValue: string,
-    onRenameChange: (val: string) => void,
-    onRenameSubmit: () => void
-}> = ({ title, items, onItemDoubleClick, onToggleExpand, expandedPaths, onItemContextMenu, onBackgroundContextMenu, renamingPath, renameValue, onRenameChange, onRenameSubmit }) => {
+    title: string;
+    path: string;
+    items: FilesystemItem[];
+    onItemDoubleClick: (item: FilesystemItem) => void;
+    onItemContextMenu: (e: React.MouseEvent, item: FilesystemItem) => void;
+    onBackgroundContextMenu: (e: React.MouseEvent) => void;
+    onPathChange: (newPath: string) => void;
+    refresh: () => void;
+    renamingPath: string | null;
+    renameValue: string;
+    onRenameChange: (val: string) => void;
+    onRenameSubmit: () => void;
+    onDragStart: (e: React.DragEvent, item: FilesystemItem) => void;
+    onDrop: (e: React.DragEvent, targetItem?: FilesystemItem) => void;
+}> = (props) => {
+    const [isDropTarget, setIsDropTarget] = useState(false);
+    const [dropTargetItem, setDropTargetItem] = useState<string | null>(null);
+    const dropTimeout = useRef<number | null>(null);
+
+    const handleDragOver = (e: React.DragEvent, item?: FilesystemItem) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if(dropTimeout.current) clearTimeout(dropTimeout.current);
+
+        const targetPath = item && item.type === 'folder' ? item.path : null;
+        if (targetPath !== dropTargetItem) setDropTargetItem(targetPath);
+        if(!item) setIsDropTarget(true); // Hovering over pane background
+    };
+
+    const handleDragLeave = () => {
+        dropTimeout.current = window.setTimeout(() => {
+            setIsDropTarget(false);
+            setDropTargetItem(null);
+        }, 100);
+    };
+
+    const handleDrop = (e: React.DragEvent, item?: FilesystemItem) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDropTarget(false);
+        setDropTargetItem(null);
+        props.onDrop(e, item);
+    };
     
     return (
-        <div className="flex flex-col h-full bg-black/50 rounded-md border border-zinc-800" onContextMenu={onBackgroundContextMenu}>
+        <div className="flex flex-col h-full bg-black/50 rounded-md border border-zinc-800" onContextMenu={props.onBackgroundContextMenu}>
             <div className="flex-shrink-0 p-2 border-b border-zinc-700">
-                <h3 className="font-semibold">{title}</h3>
-                <p className="text-xs text-zinc-400 truncate flex-grow">{items[0]?.path ? path.dirname(items[0].path) : '/'}</p>
+                <h3 className="font-semibold">{props.title}</h3>
+                <input 
+                    type="text" value={props.path} 
+                    onChange={e => props.onPathChange(e.target.value)} 
+                    onKeyDown={e => e.key === 'Enter' && props.refresh()}
+                    className="w-full bg-zinc-900/50 text-xs p-1 rounded border border-zinc-700 focus:ring-1 focus:ring-blue-500" 
+                />
             </div>
-            <div className="flex-grow overflow-y-auto overflow-x-auto custom-scrollbar p-1">
+            <div 
+                className={`flex-grow overflow-y-auto overflow-x-auto custom-scrollbar p-1 relative transition-colors duration-200 ${isDropTarget ? 'bg-blue-600/30' : ''}`}
+                onDragOver={(e) => handleDragOver(e)}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => handleDrop(e)}
+            >
                 <div className="space-y-0.5 min-w-full w-max">
-                    {items.map(item => (
+                    {props.items.map(item => (
                         <FileListItem 
                             key={item.path} 
                             item={item} 
-                            onDoubleClick={() => onItemDoubleClick(item)}
-                            onToggleExpand={() => onToggleExpand(item)}
-                            isExpanded={expandedPaths.has(item.path)}
-                            onContextMenu={(e) => onItemContextMenu(e, item)}
-                            isRenaming={renamingPath === item.path}
-                            renameValue={renameValue}
-                            onRenameChange={onRenameChange}
-                            onRenameSubmit={onRenameSubmit}
+                            onDoubleClick={() => props.onItemDoubleClick(item)}
+                            onContextMenu={(e) => props.onItemContextMenu(e, item)}
+                            isRenaming={props.renamingPath === item.path}
+                            renameValue={props.renameValue}
+                            onRenameChange={props.onRenameChange}
+                            onRenameSubmit={props.onRenameSubmit}
+                            onDragStart={props.onDragStart}
+                            onDragOver={(e) => handleDragOver(e, item)}
+                            onDrop={(e) => handleDrop(e, item)}
+                            isDropTarget={dropTargetItem === item.path}
                         />
                     ))}
                 </div>
@@ -105,7 +143,7 @@ const FileListPane: React.FC<{
 };
 
 
-const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
+const SFTPApp: React.FC<AppComponentProps> = ({ setTitle }) => {
     const [status, setStatus] = useState<ConnectionStatus>('disconnected');
     const [host, setHost] = useState('127.0.0.1');
     const [port, setPort] = useState('22');
@@ -118,239 +156,88 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
     const [remotePath, setRemotePath] = useState('.');
     const [localItems, setLocalItems] = useState<FilesystemItem[]>([]);
     const [remoteItems, setRemoteItems] = useState<FilesystemItem[]>([]);
-    const [expandedLocal, setExpandedLocal] = useState(new Set<string>());
-    const [expandedRemote, setExpandedRemote] = useState(new Set<string>());
 
-    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item?: FilesystemItem; isLocal: boolean, dirPath: string } | null>(null);
+    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item?: FilesystemItem; isLocal: boolean } | null>(null);
     const [renamingItem, setRenamingItem] = useState<{ path: string, isLocal: boolean } | null>(null);
     const [renameValue, setRenameValue] = useState('');
 
     const ws = useRef<WebSocket | null>(null);
 
-    // --- Effects ---
-    useEffect(() => {
-        setTitle(`SFTP - ${status}`);
-    }, [setTitle, status]);
+    useEffect(() => { setTitle(`SFTP - ${status}`); }, [setTitle, status]);
 
     useEffect(() => {
         fetch('http://localhost:3001/api/os-user')
             .then(res => res.ok ? res.json() : Promise.resolve({ username: 'user' }))
             .then(data => setUsername(data.username || 'user'));
-        
-        fetchLocalFiles(localPath, true);
+        refreshLocal(localPath);
     }, []);
 
     useEffect(() => {
         const closeMenu = () => setContextMenu(null);
         document.addEventListener('click', closeMenu);
-        return () => {
-            ws.current?.close();
-            document.removeEventListener('click', closeMenu);
-        };
+        return () => { ws.current?.close(); document.removeEventListener('click', closeMenu); };
     }, []);
 
-    // --- Data Fetching & State Refreshing ---
-    const refreshDirectory = useCallback((dirPath: string, isLocal: boolean) => {
-        const [items, expanded, setExpanded, setItems, fetchFiles] = isLocal 
-            ? [localItems, expandedLocal, setExpandedLocal, setLocalItems, fetchLocalFiles]
-            : [remoteItems, expandedRemote, setExpandedRemote, setRemoteItems, fetchRemoteFiles];
-
-        const dirItem = items.find(i => i.path === dirPath);
-
-        // If it's a root path or not found (which it shouldn't be), just refetch the root
-        if (!dirItem || (isLocal && dirPath === '/') || (!isLocal && dirPath === '.')) {
-            isLocal ? fetchLocalFiles(dirPath, true) : fetchRemoteFiles(dirPath);
-            return;
-        }
-
-        if (expanded.has(dirPath)) {
-            // Collapse: remove children
-            setItems(prevItems => {
-                const parentIndex = prevItems.findIndex(it => it.path === dirPath);
-                if (parentIndex === -1) return prevItems;
-                let endIndex = parentIndex + 1;
-                while(endIndex < prevItems.length && prevItems[endIndex].depth > dirItem.depth) {
-                    endIndex++;
-                }
-                const newItems = [...prevItems];
-                newItems.splice(parentIndex + 1, endIndex - (parentIndex + 1));
-                return newItems;
-            });
-            
-            // Re-expand after a short delay to fetch new children
-            setTimeout(() => fetchFiles(dirPath, false), 50);
-        }
-    }, [localItems, remoteItems, expandedLocal, expandedRemote]);
-
-    const fetchLocalFiles = useCallback(async (path: string, isRoot = false) => {
-        const newItems = await FsService.listDirectory(path);
-        const enhancedItems = newItems.map(item => ({...item, depth: (path.match(/\//g) || []).length - (path === '/' ? 1: 0) + 1}));
-    
-        if (isRoot) {
-            setLocalItems(enhancedItems.map(i => ({...i, depth: 0})));
-        } else {
-            setLocalItems(prev => {
-                const parentIndex = prev.findIndex(it => it.path === path);
-                const newArr = [...prev];
-                if(parentIndex !== -1) newArr.splice(parentIndex + 1, 0, ...enhancedItems);
-                return newArr;
-            });
-        }
+    const refreshLocal = useCallback(async (path: string) => {
+        const items = await FsService.listDirectory(path);
+        setLocalItems(items.sort((a,b) => (a.type === b.type) ? a.name.localeCompare(b.name) : (a.type === 'folder' ? -1 : 1)));
     }, []);
     
-    const fetchRemoteFiles = useCallback((path: string, isRoot = false) => {
+    const refreshRemote = useCallback((path: string) => {
         if (ws.current?.readyState === WebSocket.OPEN) {
             setStatusMessage(`Listing directory ${path}...`);
-            ws.current.send(JSON.stringify({ type: 'list', payload: { path, isRoot } }));
+            ws.current.send(JSON.stringify({ type: 'list', payload: { path } }));
         }
     }, []);
 
-    // --- WebSocket Connection ---
     const handleConnect = useCallback(() => {
-        if (!host || !port || !username || !password) {
-            setErrorMsg('All connection fields are required.');
-            return;
-        }
-        setStatus('connecting');
-        setErrorMsg('');
-        setStatusMessage(`Connecting to ${host}...`);
+        if (!host || !port || !username) { setErrorMsg('Host, Port, and Username are required.'); return; }
+        setStatus('connecting'); setErrorMsg(''); setStatusMessage(`Connecting to ${host}...`);
 
         ws.current = new WebSocket('ws://localhost:3003');
-
-        ws.current.onopen = () => {
-            ws.current?.send(JSON.stringify({ type: 'connect', payload: { host, port, username, password } }));
-        };
-
+        ws.current.onopen = () => ws.current?.send(JSON.stringify({ type: 'connect', payload: { host, port, username, password } }));
+        ws.current.onclose = () => { if (status !== 'error') { setStatus('disconnected'); setRemoteItems([]); setStatusMessage('Disconnected.'); }};
+        ws.current.onerror = () => { const msg = 'Connection failed. Is the backend running?'; setErrorMsg(msg); setStatus('error'); setStatusMessage(msg);};
         ws.current.onmessage = (event) => {
             const msg = JSON.parse(event.data);
             switch (msg.type) {
                 case 'status':
                     if (msg.payload === 'connected') {
-                        setStatus('connected');
-                        setPassword('');
-                        setStatusMessage('Connection established. Listing root directory...');
-                        fetchRemoteFiles(remotePath, true);
+                        setStatus('connected'); setPassword(''); setStatusMessage('Connected. Listing root...');
+                        refreshRemote(remotePath);
                     } else {
-                        setStatus('disconnected');
-                        setStatusMessage('Disconnected.');
+                        setStatus('disconnected'); setStatusMessage('Disconnected.');
                     }
                     break;
                 case 'list':
-                    setStatusMessage(`Directory listing successful for ${msg.payload.path}`);
-                     const newChildren = msg.payload.items
-                        .sort((a,b) => (a.type === b.type) ? a.name.localeCompare(b.name) : (a.type === 'folder' ? -1 : 1))
-                        .map(child => ({...child, depth: (msg.payload.path.match(/[\\/]/g) || []).length + (msg.payload.path === '.' ? 0 : 1)}));
-
-                    if (msg.payload.isRoot) {
-                         setRemoteItems(newChildren.map(c => ({...c, depth: 0})));
-                    } else {
-                        setRemoteItems(prev => {
-                            const parentIndex = prev.findIndex(it => it.path === msg.payload.path);
-                            const newArr = [...prev];
-                            if(parentIndex !== -1) newArr.splice(parentIndex + 1, 0, ...newChildren);
-                            return newArr;
-                        });
-                    }
-                    break;
-                case 'download_complete':
-                    setStatusMessage(`Downloaded ${path.basename(msg.payload.remotePath)}. Opening...`);
-                    openApp?.('notebook', { file: { path: msg.payload.localPath } });
+                    setStatusMessage(`Listed ${msg.payload.path}`);
+                    setRemoteItems(msg.payload.items.sort((a,b) => (a.type === b.type) ? a.name.localeCompare(b.name) : (a.type === 'folder' ? -1 : 1)));
                     break;
                 case 'operation_success':
                     setStatusMessage(msg.payload.message);
-                    refreshDirectory(msg.payload.dirToRefresh, false);
-                    break;
-                case 'upload_status':
-                    if (msg.payload.status === 'started') {
-                        setStatusMessage(`Uploading changes to ${path.basename(msg.payload.remotePath)}...`);
-                    } else if (msg.payload.status === 'complete') {
-                        setStatusMessage(`Successfully saved ${path.basename(msg.payload.remotePath)} to server.`);
-                    } else if (msg.payload.status === 'error') {
-                        setStatusMessage(`Error saving ${path.basename(msg.payload.remotePath)}: ${msg.payload.error}`);
-                    }
+                    if (msg.payload.isLocal) refreshLocal(msg.payload.dirToRefresh);
+                    else refreshRemote(msg.payload.dirToRefresh);
                     break;
                 case 'error':
-                    setErrorMsg(msg.payload);
-                    setStatus('error');
-                    setStatusMessage(`Error: ${msg.payload}`);
+                    setErrorMsg(msg.payload); setStatus('error'); setStatusMessage(`Error: ${msg.payload}`);
                     ws.current?.close();
                     break;
             }
         };
+    }, [host, port, username, password, status, remotePath, refreshRemote]);
 
-        ws.current.onerror = () => {
-            const msg = 'WebSocket connection failed. Ensure the backend server is running.';
-            setErrorMsg(msg);
-            setStatus('error');
-            setStatusMessage(msg);
-        };
-
-        ws.current.onclose = () => {
-            if (status !== 'error') {
-                setStatus('disconnected');
-                setRemoteItems([]);
-                setStatusMessage('Disconnected.');
-            }
-        };
-    }, [host, port, username, password, remotePath, status, fetchRemoteFiles, openApp, refreshDirectory]);
-
-    const handleDisconnect = () => {
-        ws.current?.send(JSON.stringify({ type: 'disconnect' }));
-        ws.current?.close();
-    };
-
-    // --- UI Actions & Handlers ---
-    const handleToggleExpand = (item: FilesystemItem, isLocal: boolean) => {
-        const [expanded, setExpanded, fetchFiles, setItems] = isLocal 
-            ? [expandedLocal, setExpandedLocal, fetchLocalFiles, setLocalItems]
-            : [expandedRemote, setExpandedRemote, fetchRemoteFiles, setRemoteItems];
-
-        if (expanded.has(item.path)) {
-            setExpanded(prev => { const newSet = new Set(prev); newSet.delete(item.path); return newSet; });
-            setItems(prevItems => {
-                const parentIndex = prevItems.findIndex(it => it.path === item.path);
-                if(parentIndex === -1) return prevItems;
-                let endIndex = parentIndex + 1;
-                while(endIndex < prevItems.length && prevItems[endIndex].depth > item.depth) {
-                    endIndex++;
-                }
-                const newItems = [...prevItems];
-                newItems.splice(parentIndex + 1, endIndex - (parentIndex + 1));
-                return newItems;
-            });
-        } else {
-            setExpanded(prev => new Set(prev).add(item.path));
-            fetchFiles(item.path, false);
-        }
-    };
+    const handleDisconnect = () => { ws.current?.close(); };
 
     const handleItemDoubleClick = (item: FilesystemItem, isLocal: boolean) => {
         if (item.type === 'folder') {
-            handleToggleExpand(item, isLocal);
-        } else if (!isLocal) { // Remote file double-click
-            setStatusMessage(`Downloading ${item.name}...`);
-            ws.current?.send(JSON.stringify({ type: 'download_and_track', payload: item.path }));
-        } else { // Local file double-click
-            openApp?.('notebook', { file: { path: item.path } });
+            const newPath = isLocal ? path.posix.join(localPath, item.name) : path.posix.join(remotePath, item.name);
+            if (isLocal) { setLocalPath(newPath); refreshLocal(newPath); }
+            else { setRemotePath(newPath); refreshRemote(newPath); }
         }
-    };
-    
-    // --- Context Menu Handlers ---
-    const handleItemContextMenu = (e: React.MouseEvent, item: FilesystemItem, isLocal: boolean) => {
-        e.preventDefault(); e.stopPropagation();
-        setContextMenu({ x: e.clientX, y: e.clientY, item, isLocal, dirPath: item.type === 'folder' ? item.path : path.dirname(item.path) });
-    };
-
-    const handleBackgroundContextMenu = (e: React.MouseEvent, isLocal: boolean) => {
-        e.preventDefault(); e.stopPropagation();
-        const dirPath = isLocal ? localPath : remotePath;
-        setContextMenu({ x: e.clientX, y: e.clientY, isLocal, dirPath });
     };
 
     const handleUpload = async (item: FilesystemItem, remoteDir: string) => {
-        if (item.type === 'folder') {
-            setStatusMessage('Folder uploads not supported yet.'); return;
-        }
+        if (item.type === 'folder') { setStatusMessage('Folder uploads not supported yet.'); return; }
         setStatusMessage(`Reading ${item.name} for upload...`);
         const file = await FsService.readFileAsBase64(item.path);
         if (file && file.content) {
@@ -361,27 +248,40 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
         }
     };
 
-    const handleNewItem = async (isLocal: boolean, isFolder: boolean, parentDir: string) => {
-        const type = isFolder ? 'folder' : 'file';
-        const name = window.prompt(`Enter name for new ${type}:`);
-        if (!name) return;
-    
-        if (isLocal) {
-            isFolder ? await FsService.createFolder(parentDir, name) : await FsService.createFile(parentDir, name, "");
-            refreshDirectory(parentDir, true);
-        } else {
-            const messageType = isFolder ? 'create_folder' : 'create_file';
-            ws.current?.send(JSON.stringify({ type: messageType, payload: { parentDir, name } }));
+    const handleDownload = (item: FilesystemItem, localDir: string) => {
+        if(item.type === 'folder') { setStatusMessage('Folder downloads not supported yet.'); return; }
+        setStatusMessage(`Downloading ${item.name}...`);
+        ws.current?.send(JSON.stringify({ type: 'download', payload: { remotePath: item.path, localDir, fileName: item.name } }));
+    };
+
+    const handleMove = (source: DraggedItem, destPath: string) => {
+        if (source.isLocal) { // Local move
+            FsService.moveItem(source.item, destPath).then(() => refreshLocal(localPath));
+        } else { // Remote move
+            ws.current?.send(JSON.stringify({ type: 'move', payload: { sourcePath: source.item.path, destPath: path.posix.join(destPath, source.item.name) } }));
         }
     };
 
-    const handleDeleteItem = async (item: FilesystemItem, isLocal: boolean) => {
-        if (!window.confirm(`Are you sure you want to delete ${item.name}?`)) return;
+    const handleNewItem = async (isLocal: boolean, isFolder: boolean) => {
+        const type = isFolder ? 'folder' : 'file';
+        const name = window.prompt(`Enter name for new ${type}:`);
+        if (!name) return;
+        const parentDir = isLocal ? localPath : remotePath;
         if (isLocal) {
-            await FsService.deleteItem(item);
-            refreshDirectory(path.dirname(item.path), true);
+            isFolder ? await FsService.createFolder(parentDir, name) : await FsService.createFile(parentDir, name, "");
+            refreshLocal(parentDir);
         } else {
-            ws.current?.send(JSON.stringify({ type: 'delete_item', payload: { item } }));
+            ws.current?.send(JSON.stringify({ type: isFolder ? 'create_folder' : 'create_file', payload: { parentDir, name } }));
+        }
+    };
+    
+    const handleDeleteItem = async (item: FilesystemItem, isLocal: boolean) => {
+        if (!window.confirm(`Delete ${item.name}?`)) return;
+        const parentDir = isLocal ? path.posix.dirname(item.path) : path.posix.dirname(item.path);
+        if (isLocal) {
+            await FsService.deleteItem(item); refreshLocal(parentDir);
+        } else {
+            ws.current?.send(JSON.stringify({ type: 'delete', payload: { item } }));
         }
     };
 
@@ -390,61 +290,67 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
         const { path: itemPath, isLocal } = renamingItem;
         const items = isLocal ? localItems : remoteItems;
         const item = items.find(i => i.path === itemPath);
+        const parentDir = isLocal ? path.posix.dirname(itemPath) : path.posix.dirname(itemPath);
 
         if (item && renameValue && item.name !== renameValue) {
             if (isLocal) {
-                await FsService.renameItem(item, renameValue);
-                refreshDirectory(path.dirname(item.path), true);
+                await FsService.renameItem(item, renameValue); refreshLocal(parentDir);
             } else {
-                ws.current?.send(JSON.stringify({ type: 'rename_item', payload: { item, newName: renameValue } }));
+                ws.current?.send(JSON.stringify({ type: 'rename', payload: { item, newName: renameValue } }));
             }
         }
         setRenamingItem(null);
     };
 
+    const handleDragStart = (e: React.DragEvent, item: FilesystemItem, isLocal: boolean) => {
+        e.dataTransfer.setData('application/json', JSON.stringify({ item, isLocal }));
+        e.dataTransfer.effectAllowed = 'move';
+    };
+
+    const handleDrop = (e: React.DragEvent, isLocalDest: boolean, destItem?: FilesystemItem) => {
+        const source: DraggedItem = JSON.parse(e.dataTransfer.getData('application/json'));
+        if (!source || !source.item) return;
+
+        const destDir = destItem?.type === 'folder' 
+            ? destItem.path 
+            : (isLocalDest ? localPath : remotePath);
+
+        if (source.isLocal && !isLocalDest) handleUpload(source.item, destDir);
+        else if (!source.isLocal && isLocalDest) handleDownload(source.item, destDir);
+        else if (source.isLocal === isLocalDest) handleMove(source, destDir);
+    };
+
     const contextMenuItems = useMemo<ContextMenuItem[]>(() => {
         if (!contextMenu) return [];
-        const { item, isLocal, dirPath } = contextMenu;
-        
+        const { item, isLocal } = contextMenu;
         let items: ContextMenuItem[] = [];
+        const dir = isLocal ? localPath : remotePath;
 
-        if (item) { // Clicked on an item
-            if (isLocal) {
-                if (item.type === 'file') items.push({ type: 'item', label: 'Open', onClick: () => openApp?.('notebook', { file: { path: item.path } }) });
-                items.push({ type: 'item', label: 'Upload', onClick: () => handleUpload(item, remotePath), disabled: status !== 'connected' || item.type === 'folder' });
-            } else {
-                if (item.type === 'file') items.push({ type: 'item', label: 'Download & Edit', onClick: () => handleItemDoubleClick(item, false) });
-            }
+        if (item) {
+            if(isLocal) items.push({ type: 'item', label: 'Upload', onClick: () => handleUpload(item, remotePath), disabled: status !== 'connected' });
+            else items.push({ type: 'item', label: 'Download', onClick: () => handleDownload(item, localPath), disabled: status !== 'connected' });
+            items.push({ type: 'separator' });
             items.push({ type: 'item', label: 'Delete', onClick: () => handleDeleteItem(item, isLocal) });
             items.push({ type: 'item', label: 'Rename', onClick: () => { setRenamingItem({ path: item.path, isLocal }); setRenameValue(item.name); }});
         }
         
-        if(item && item.type === 'folder') items.push({ type: 'separator' });
+        if (items.length > 0) items.push({ type: 'separator' });
         
-        // Actions for the directory (either clicked folder or background)
-        if(dirPath) {
-            items.push({ type: 'item', label: 'New File', onClick: () => handleNewItem(isLocal, false, dirPath) });
-            items.push({ type: 'item', label: 'New Folder', onClick: () => handleNewItem(isLocal, true, dirPath) });
-        }
-        
+        items.push({ type: 'item', label: 'New File', onClick: () => handleNewItem(isLocal, false) });
+        items.push({ type: 'item', label: 'New Folder', onClick: () => handleNewItem(isLocal, true) });
         items.push({ type: 'separator' });
-        items.push({ type: 'item', label: 'Refresh', onClick: () => refreshDirectory(dirPath || (isLocal ? localPath : remotePath), isLocal) });
+        items.push({ type: 'item', label: 'Refresh', onClick: () => isLocal ? refreshLocal(dir) : refreshRemote(dir) });
 
         return items;
-    }, [contextMenu, status, remotePath, localPath, openApp, refreshDirectory]);
-
+    }, [contextMenu, status, localPath, remotePath, handleUpload, handleDownload, handleDeleteItem, handleNewItem, refreshLocal, refreshRemote]);
 
     return (
         <div className="flex flex-col h-full bg-zinc-900 text-white" onClick={() => setContextMenu(null)}>
             <div className="flex-shrink-0 flex items-center space-x-2 text-sm p-2 border-b border-zinc-700">
-                <span>Host:</span>
-                <input type="text" value={host} onChange={e => setHost(e.target.value)} disabled={status === 'connecting' || status === 'connected'} className="w-32 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 disabled:bg-zinc-800/50"/>
-                <span>Port:</span>
-                <input type="text" value={port} onChange={e => setPort(e.target.value)} disabled={status === 'connecting' || status === 'connected'} className="w-16 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 disabled:bg-zinc-800/50"/>
-                <span>User:</span>
-                <input type="text" value={username} onChange={e => setUsername(e.target.value)} disabled={status === 'connecting' || status === 'connected'} className="w-24 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 disabled:bg-zinc-800/50"/>
-                <span>Pass:</span>
-                <input type="password" value={password} onChange={e => setPassword(e.target.value)} disabled={status === 'connecting' || status === 'connected'} onKeyDown={e => e.key === 'Enter' && handleConnect()} className="flex-grow bg-zinc-800 border border-zinc-700 rounded px-2 py-1 disabled:bg-zinc-800/50"/>
+                <span>Host:</span> <input type="text" value={host} onChange={e => setHost(e.target.value)} disabled={status !== 'disconnected'} className="w-32 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 disabled:opacity-50"/>
+                <span>Port:</span> <input type="text" value={port} onChange={e => setPort(e.target.value)} disabled={status !== 'disconnected'} className="w-16 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 disabled:opacity-50"/>
+                <span>User:</span> <input type="text" value={username} onChange={e => setUsername(e.target.value)} disabled={status !== 'disconnected'} className="w-24 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 disabled:opacity-50"/>
+                <span>Pass:</span> <input type="password" value={password} onChange={e => setPassword(e.target.value)} disabled={status !== 'disconnected'} onKeyDown={e => e.key === 'Enter' && handleConnect()} className="flex-grow bg-zinc-800 border border-zinc-700 rounded px-2 py-1 disabled:opacity-50"/>
                 {status === 'connected' ? (
                     <button onClick={handleDisconnect} className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded">Disconnect</button>
                 ) : (
@@ -453,75 +359,18 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
                     </button>
                 )}
             </div>
-            
             {errorMsg && <div className="flex-shrink-0 text-center py-1 bg-red-800/50 text-red-300 text-xs">{errorMsg}</div>}
-
             <div className="flex-grow grid grid-cols-2 gap-3 p-3 overflow-hidden">
-                <FileListPane 
-                    title="Local Site" 
-                    items={localItems}
-                    onItemDoubleClick={(item) => handleItemDoubleClick(item, true)}
-                    onToggleExpand={(item) => handleToggleExpand(item, true)}
-                    expandedPaths={expandedLocal}
-                    onItemContextMenu={(e, item) => handleItemContextMenu(e, item, true)}
-                    onBackgroundContextMenu={(e) => handleBackgroundContextMenu(e, true)}
-                    renamingPath={renamingItem?.isLocal ? renamingItem.path : null}
-                    renameValue={renameValue}
-                    onRenameChange={setRenameValue}
-                    onRenameSubmit={handleRenameSubmit}
-                />
-                 <FileListPane 
-                    title="Remote Site" 
-                    items={remoteItems}
-                    onItemDoubleClick={(item) => handleItemDoubleClick(item, false)}
-                    onToggleExpand={(item) => handleToggleExpand(item, false)}
-                    expandedPaths={expandedRemote}
-                    onItemContextMenu={(e, item) => handleItemContextMenu(e, item, false)}
-                    onBackgroundContextMenu={(e) => handleBackgroundContextMenu(e, false)}
-                    renamingPath={!renamingItem?.isLocal ? renamingItem?.path : null}
-                    renameValue={renameValue}
-                    onRenameChange={setRenameValue}
-                    onRenameSubmit={handleRenameSubmit}
-                />
+                <FileListPane title="Local Site" path={localPath} items={localItems} onPathChange={setLocalPath} refresh={() => refreshLocal(localPath)} onItemDoubleClick={(item) => handleItemDoubleClick(item, true)} onItemContextMenu={(e, item) => setContextMenu({ x: e.clientX, y: e.clientY, item, isLocal: true })} onBackgroundContextMenu={(e) => setContextMenu({ x: e.clientX, y: e.clientY, isLocal: true })} renamingPath={renamingItem?.isLocal ? renamingItem.path : null} renameValue={renameValue} onRenameChange={setRenameValue} onRenameSubmit={handleRenameSubmit} onDragStart={(e, item) => handleDragStart(e, item, true)} onDrop={(e, item) => handleDrop(e, true, item)} />
+                <FileListPane title="Remote Site" path={remotePath} items={remoteItems} onPathChange={setRemotePath} refresh={() => refreshRemote(remotePath)} onItemDoubleClick={(item) => handleItemDoubleClick(item, false)} onItemContextMenu={(e, item) => setContextMenu({ x: e.clientX, y: e.clientY, item, isLocal: false })} onBackgroundContextMenu={(e) => setContextMenu({ x: e.clientX, y: e.clientY, isLocal: false })} renamingPath={!renamingItem?.isLocal ? renamingItem.path : null} renameValue={renameValue} onRenameChange={setRenameValue} onRenameSubmit={handleRenameSubmit} onDragStart={(e, item) => handleDragStart(e, item, false)} onDrop={(e, item) => handleDrop(e, false, item)} />
             </div>
-            
             <div className="flex-shrink-0 h-10 border-t border-zinc-700 p-2 flex items-center text-xs">
-                <p className="font-semibold mr-2">Status:</p>
-                <div className="flex-grow text-zinc-400 p-1 truncate">{statusMessage}</div>
+                <p className="font-semibold mr-2">Status:</p> <div className="flex-grow text-zinc-400 p-1 truncate">{statusMessage}</div>
             </div>
-
             {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} items={contextMenuItems} onClose={() => setContextMenu(null)} />}
         </div>
     );
 };
-
-// Dummy path utils for frontend
-const path = {
-    basename: (p: string) => p.split(/[\\/]/).pop() || '',
-    dirname: (p: string) => {
-        if (p === '/' || p === '.') return p;
-        const lastSlash = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
-        if (lastSlash === -1) return '.';
-        if (lastSlash === 0) return '/';
-        return p.substring(0, lastSlash);
-    },
-    join: (...args: string[]) => {
-        // A simplified path join that handles both Unix and Windows separators
-        const parts = args.flatMap(part => part.split(/[\\/]/)).filter(p => p && p !== '.');
-        const first = args[0] || '';
-        const isAbsolute = first.startsWith('/') || /^[a-zA-Z]:/.test(first);
-        let result = parts.join('/');
-        if(isAbsolute) result = '/' + result;
-        return result.replace(/\/+/g, '/');
-    }
-};
-
-export const appDefinition: AppDefinition = {
-  id: 'sftp',
-  name: 'SFTP Client',
-  icon: SftpIcon,
-  component: SFTPApp,
-  defaultSize: { width: 900, height: 600 },
-};
-
+const path = { posix: { join: (...args) => args.join('/').replace(/\/+/g, '/'), dirname: (p) => p.substring(0, p.lastIndexOf('/')) || '/' }};
+export const appDefinition: AppDefinition = { id: 'sftp', name: 'SFTP Client', icon: SftpIcon, component: SFTPApp, defaultSize: { width: 950, height: 650 } };
 export default SFTPApp;

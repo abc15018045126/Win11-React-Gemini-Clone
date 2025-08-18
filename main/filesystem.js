@@ -63,6 +63,27 @@ router.get('/read-base64', async (req, res) => {
     }
 });
 
+router.get('/download', (req, res) => {
+    try {
+        const relativePath = req.query.path;
+        const filePath = resolvePath(relativePath);
+        res.download(filePath, path.basename(relativePath), (err) => {
+            if (err) {
+                console.error(`API Error during file download for ${req.query.path}:`, err);
+                if (!res.headersSent) {
+                    res.status(500).json({ error: 'Failed to download file' });
+                }
+            }
+        });
+    } catch (error) {
+         console.error(`API Error setting up download for ${req.query.path}:`, error);
+         if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to initiate download' });
+         }
+    }
+});
+
+
 router.post('/save', async (req, res) => {
     try {
         const { path: relativePath, content } = req.body;
