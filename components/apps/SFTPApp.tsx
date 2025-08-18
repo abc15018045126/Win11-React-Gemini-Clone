@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { AppComponentProps, AppDefinition, FilesystemItem as BaseFilesystemItem, ClipboardItem } from '../../types';
+import { AppComponentProps, AppDefinition, FilesystemItem as BaseFilesystemItem } from '../../types';
 import { FolderIcon, FileGenericIcon, SftpIcon } from '../../constants';
-import * as FsService from '../../services/filesystemService';
 import ContextMenu, { ContextMenuItem } from '../ContextMenu';
 
 const pathHelper = {
     join: (...args: string[]) => args.join('/').replace(/\/+/g, '/'),
     dirname: (p: string) => {
-        if (p === '/') return '/';
+        if (p === '/' || p === '.') return p;
         const lastSlash = p.lastIndexOf('/');
         if (lastSlash === -1) return '.';
-        if (lastSlash === 0) return '/';
-        return p.substring(0, lastSlash);
+        if (lastSlash === 0 && p.length > 1) return '/';
+        if (lastSlash === 0 && p.length === 1) return '/';
+        return p.substring(0, lastSlash) || '/';
     },
     basename: (p: string) => p.substring(p.lastIndexOf('/') + 1),
 };
@@ -19,49 +19,18 @@ const pathHelper = {
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 interface FilesystemItem extends BaseFilesystemItem { 
     size?: number;
-    children?: FilesystemItem[];
 }
 
-// Recursive component to render the file tree
-const FileTree: React.FC<{
-    items: FilesystemItem[];
-    onFileClick: (item: FilesystemItem) => void;
-    onFolderClick: (item: FilesystemItem) => void;
-    onItemContextMenu: (e: React.MouseEvent, item: FilesystemItem) => void;
-    level?: number;
-}> = ({ items, onFileClick, onFolderClick, onItemContextMenu, level = 0 }) => {
-    return (
-        <div className="space-y-0.5">
-            {items.map(item => (
-                <div key={item.path}>
-                    <button
-                        onDoubleClick={() => item.type === 'folder' ? onFolderClick(item) : onFileClick(item)}
-                        onClick={() => item.type === 'folder' ? onFolderClick(item) : onFileClick(item)}
-                        onContextMenu={(e) => onItemContextMenu(e, item)}
-                        className="w-full flex items-center p-1 rounded text-left text-sm hover:bg-zinc-700/80"
-                        style={{ paddingLeft: `${level * 16 + 4}px` }}
-                        title={item.path}
-                    >
-                        {item.type === 'folder' 
-                            ? <FolderIcon isSmall className="w-5 h-5 text-amber-400 mr-2 flex-shrink-0"/> 
-                            : <FileGenericIcon isSmall className="w-5 h-5 text-zinc-400 mr-2 flex-shrink-0"/>
-                        }
-                        <span className="truncate">{item.name}</span>
-                    </button>
-                    {item.children && item.children.length > 0 && (
-                        <FileTree 
-                            items={item.children} 
-                            onFileClick={onFileClick}
-                            onFolderClick={onFolderClick}
-                            onItemContextMenu={onItemContextMenu}
-                            level={level + 1}
-                        />
-                    )}
-                </div>
-            ))}
-        </div>
-    );
-};
+const getFileIcon = (filename: string) => {
+    return <FileGenericIcon className="w-12 h-12 text-zinc-400" />;
+}
+
+const SidebarItem: React.FC<{ icon: React.ReactNode; label: string; onClick: () => void; isActive: boolean }> = ({ icon, label, onClick, isActive }) => (
+    <button onClick={onClick} className={`w-full flex items-center space-x-3 px-3 py-2 text-sm rounded ${isActive ? 'bg-blue-600/30 text-white' : 'hover:bg-zinc-700/50'}`}>
+        {icon}
+        <span>{label}</span>
+    </button>
+);
 
 const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
     const [status, setStatus] = useState<ConnectionStatus>('disconnected');
@@ -72,146 +41,130 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
     const [errorMsg, setErrorMsg] = useState('');
     const [statusMessage, setStatusMessage] = useState('Not connected.');
     
-    // --- Tree State ---
-    const [localTree, setLocalTree] = useState<FilesystemItem[]>([]);
-    const [remoteTree, setRemoteTree] = useState<FilesystemItem[]>([]);
-    const [localExpanded, setLocalExpanded] = useState<Set<string>>(new Set(['/']));
-    const [remoteExpanded, setRemoteExpanded] = useState<Set<string>>(new Set(['.']));
+    // --- State for file browsing ---
+    const [currentPath, setCurrentPath] = useState('.');
+    const [history, setHistory] = useState(['.']);
+    const [historyIndex, setHistoryIndex] = useState(0);
+    const [items, setItems] = useState<FilesystemItem[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item?: FilesystemItem } | null>(null);
+    const [renamingItemPath, setRenamingItemPath] = useState<string | null>(null);
+    const [renameValue, setRenameValue] = useState('');
 
-    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: FilesystemItem; isLocal: boolean } | null>(null);
     const ws = useRef<WebSocket | null>(null);
 
-    useEffect(() => { setTitle(`SFTP - ${status}`); }, [setTitle, status]);
+    useEffect(() => { setTitle(`SFTP - ${status === 'connected' ? pathHelper.basename(currentPath) : status}`); }, [setTitle, status, currentPath]);
     
-    // --- Data Fetching and Tree Management ---
-    const sortItems = (items: FilesystemItem[]) => items.sort((a,b) => (a.type === b.type) ? a.name.localeCompare(b.name) : (a.type === 'folder' ? -1 : 1));
+    useEffect(() => () => { ws.current?.close(); }, []);
 
-    const updateTreeData = (
-        currentTree: FilesystemItem[], 
-        path: string, 
-        children: FilesystemItem[]
-    ): FilesystemItem[] => {
-        const newTree = JSON.parse(JSON.stringify(currentTree)); // Deep copy
-        let currentLevel = newTree;
-        
-        if (path === '/' || path === '.') {
-            return sortItems(children);
-        }
-
-        const pathParts = path.split('/').filter(p => p);
-        let currentPath = path.startsWith('/') ? '/' : '';
-
-        for (let i = 0; i < pathParts.length; i++) {
-            const part = pathParts[i];
-            currentPath = pathHelper.join(currentPath, part);
-            const node = currentLevel.find(item => item.path === currentPath);
-            if (node) {
-                if (i === pathParts.length - 1) {
-                    node.children = sortItems(children);
-                    break;
-                }
-                if (!node.children) node.children = [];
-                currentLevel = node.children;
-            } else {
-                break; 
-            }
-        }
-        return newTree;
-    };
-
-    const fetchAndExpand = useCallback(async (path: string, isLocal: boolean) => {
-        if (isLocal) {
-            const items = await FsService.listDirectory(path);
-            setLocalTree(currentTree => updateTreeData(currentTree, path, items));
-        } else if (ws.current?.readyState === WebSocket.OPEN) {
-            setStatusMessage(`Listing directory ${path}...`);
-            ws.current.send(JSON.stringify({ type: 'list', payload: { path } }));
-        }
-    }, []);
-
-    const handleFolderClick = useCallback((item: FilesystemItem, isLocal: boolean) => {
-        const expandedSet = isLocal ? localExpanded : remoteExpanded;
-        const setExpanded = isLocal ? setLocalExpanded : setRemoteExpanded;
-        const newExpanded = new Set(expandedSet);
-
-        if (expandedSet.has(item.path)) {
-            newExpanded.delete(item.path);
-        } else {
-            newExpanded.add(item.path);
-            fetchAndExpand(item.path, isLocal);
-        }
-        setExpanded(newExpanded);
-    }, [localExpanded, remoteExpanded, fetchAndExpand]);
-
-    // Initial load
+    // Fetch OS user on mount
     useEffect(() => {
         fetch('http://localhost:3001/api/os-user')
             .then(res => res.ok ? res.json() : Promise.resolve({ username: 'user' }))
             .then(data => setUsername(data.username || 'user'));
-        fetchAndExpand('/', true);
-    }, [fetchAndExpand]);
+    }, []);
+
+    const sortItems = (items: FilesystemItem[]) => items.sort((a,b) => (a.type === b.type) ? a.name.localeCompare(b.name) : (a.type === 'folder' ? -1 : 1));
+
+    const fetchItems = useCallback((path: string) => {
+        if (ws.current?.readyState === WebSocket.OPEN) {
+            setIsLoading(true);
+            setItems([]);
+            setStatusMessage(`Listing directory ${path}...`);
+            ws.current.send(JSON.stringify({ type: 'list', payload: { path } }));
+        }
+    }, []);
     
-    useEffect(() => () => { ws.current?.close(); }, []);
+    const navigateTo = useCallback((path: string) => {
+        if (path === currentPath) {
+            fetchItems(path); // Refresh if navigating to same path
+            return;
+        }
+        const newHistory = history.slice(0, historyIndex + 1);
+        newHistory.push(path);
+        setHistory(newHistory);
+        setHistoryIndex(newHistory.length - 1);
+        setCurrentPath(path);
+        setContextMenu(null);
+    }, [currentPath, history, historyIndex, fetchItems]);
+
+    useEffect(() => {
+        if (status === 'connected') {
+            fetchItems(currentPath);
+        }
+    }, [currentPath, status, fetchItems]);
+
+
+    const goBack = () => {
+        if (historyIndex > 0) {
+            const newIndex = historyIndex - 1;
+            setHistoryIndex(newIndex);
+            setCurrentPath(history[newIndex]);
+        }
+    };
+    
+    const goUp = () => {
+        if (currentPath !== '/' && currentPath !== '.') {
+            const parentPath = pathHelper.dirname(currentPath);
+            navigateTo(parentPath);
+        }
+    };
     
     // --- Connection Handling ---
     const handleConnect = useCallback(() => {
         if (!host || !port || !username) { setErrorMsg('Host, Port, and Username are required.'); return; }
         setStatus('connecting'); setErrorMsg(''); setStatusMessage(`Connecting to ${host}...`);
+        setItems([]);
 
         ws.current = new WebSocket('ws://localhost:3003');
-        ws.current.onopen = () => ws.current?.send(JSON.stringify({ type: 'connect', payload: { host, port, username, password } }));
-        ws.current.onclose = () => { if (status !== 'error') { setStatus('disconnected'); setRemoteTree([]); setStatusMessage('Disconnected.'); }};
+        
+        ws.current.onopen = () => {
+             ws.current?.send(JSON.stringify({ type: 'connect', payload: { host, port, username, password } }));
+        };
+        
+        ws.current.onclose = () => { if (status !== 'error') { setStatus('disconnected'); setItems([]); setStatusMessage('Disconnected.'); }};
+        
         ws.current.onerror = () => { const msg = 'Connection failed. Is the backend running?'; setErrorMsg(msg); setStatus('error'); setStatusMessage(msg);};
+        
         ws.current.onmessage = (event) => {
             const msg = JSON.parse(event.data);
             switch (msg.type) {
                 case 'status':
                     if (msg.payload === 'connected') {
-                        setStatus('connected'); setPassword(''); setStatusMessage('Connected. Listing root...');
-                        fetchAndExpand('.', false); // Start at home dir for remote
+                        setStatus('connected'); setPassword(''); setStatusMessage('Connected. Listing home directory...');
+                        setCurrentPath('.');
+                        setHistory(['.']);
+                        setHistoryIndex(0);
                     } else {
                         setStatus('disconnected'); setStatusMessage('Disconnected.');
                     }
                     break;
                 case 'list':
                     setStatusMessage(`Listed ${msg.payload.path}`);
-                    setRemoteTree(currentTree => updateTreeData(currentTree, msg.payload.path, msg.payload.items));
+                    setItems(sortItems(msg.payload.items));
+                    setIsLoading(false);
                     break;
                 case 'file_content':
                     handleOpenFileInNotebook(msg.payload.path, msg.payload.content);
                     break;
                 case 'operation_success':
                     setStatusMessage(msg.payload.message);
-                    fetchAndExpand(msg.payload.dirToRefresh, msg.payload.isLocal);
+                    if(msg.payload.dirToRefresh === currentPath) {
+                        fetchItems(currentPath);
+                    }
                     break;
                 case 'error':
                     setErrorMsg(msg.payload); setStatus('error'); setStatusMessage(`Error: ${msg.payload}`);
+                    setIsLoading(false);
                     ws.current?.close();
                     break;
             }
         };
-    }, [host, port, username, password, status, fetchAndExpand]);
+    }, [host, port, username, password, status, currentPath, fetchItems]);
     
     const handleDisconnect = useCallback(() => { ws.current?.close(); }, []);
 
-    // --- File Interaction Workflow ---
-    const handleRemoteSave = useCallback((remotePath: string, newContent: string) => {
-        if (ws.current?.readyState === WebSocket.OPEN) {
-            setStatusMessage(`Uploading changes to ${pathHelper.basename(remotePath)}...`);
-            ws.current.send(JSON.stringify({
-                type: 'upload',
-                payload: {
-                    remoteDir: pathHelper.dirname(remotePath),
-                    fileName: pathHelper.basename(remotePath),
-                    fileData: newContent,
-                    encoding: 'utf8' // Specify encoding
-                }
-            }));
-        } else {
-            alert("SFTP Connection lost. Could not save file to server.");
-        }
-    }, []);
-
+    // --- File Interaction ---
     const handleOpenFileInNotebook = useCallback((remotePath: string, content: string) => {
         if (!openApp) return;
         setStatusMessage(`Opening ${remotePath} in Notebook...`);
@@ -219,21 +172,25 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
             initialData: {
                 fileName: pathHelper.basename(remotePath),
                 content: content,
-                onSave: (newContent: string) => handleRemoteSave(remotePath, newContent),
             }
         });
-    }, [openApp, handleRemoteSave]);
-    
-    const handleFileClick = useCallback((item: FilesystemItem, isLocal: boolean) => {
-        if (isLocal) {
-            openApp?.('notebook', { file: { path: item.path, name: item.name } });
-        } else {
-            if (ws.current?.readyState === WebSocket.OPEN) {
-                setStatusMessage(`Fetching content for ${item.name}...`);
-                ws.current.send(JSON.stringify({ type: 'get_content', payload: { path: item.path } }));
-            }
-        }
     }, [openApp]);
+    
+    const handleFileClick = useCallback((item: FilesystemItem) => {
+        if (ws.current?.readyState === WebSocket.OPEN) {
+            setStatusMessage(`Fetching content for ${item.name}...`);
+            ws.current.send(JSON.stringify({ type: 'get_content', payload: { path: item.path } }));
+        }
+    }, []);
+
+    const openItem = useCallback((item: FilesystemItem) => {
+        if (renamingItemPath === item.path) return;
+        if (item.type === 'folder') {
+            navigateTo(item.path);
+        } else if (item.type === 'file') {
+            handleFileClick(item);
+        }
+    }, [navigateTo, handleFileClick, renamingItemPath]);
 
     // --- Context Menu and Actions ---
     const closeContextMenu = useCallback(() => setContextMenu(null), []);
@@ -242,77 +199,84 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
         return () => document.removeEventListener('click', closeContextMenu);
     }, [closeContextMenu]);
     
-    const onItemContextMenu = useCallback((e: React.MouseEvent, item: FilesystemItem, isLocal: boolean) => {
+    const onItemContextMenu = (e: React.MouseEvent, item: FilesystemItem) => {
         e.preventDefault(); e.stopPropagation();
-        setContextMenu({ x: e.clientX, y: e.clientY, item, isLocal });
-    }, []);
-    
-     const handleCreate = useCallback(async (isFolder: boolean, item: FilesystemItem, isLocal: boolean) => {
-        const name = prompt(`Enter name for new ${isFolder ? 'folder' : 'file'}:`);
-        if (!name) return;
-        const parentDir = item.path;
-        setStatusMessage(`Creating ${name}...`);
+        setContextMenu({ x: e.clientX, y: e.clientY, item });
+    };
 
-        if(isLocal) {
-            isFolder ? await FsService.createFolder(parentDir, name) : await FsService.createFile(parentDir, name, "");
-            fetchAndExpand(parentDir, true);
-        } else if (ws.current?.readyState === WebSocket.OPEN) {
-            const type = isFolder ? 'create_folder' : 'create_file';
-            ws.current.send(JSON.stringify({ type, payload: { parentDir, name } }));
+    const handleBackgroundContextMenu = (e: React.MouseEvent) => {
+        e.preventDefault();
+        if ((e.target as HTMLElement).closest('button')) return;
+        setContextMenu({ x: e.clientX, y: e.clientY });
+    }
+
+    const handleCreate = (isFolder: boolean) => {
+        const name = prompt(`Enter name for new ${isFolder ? 'folder' : 'file'}:`);
+        if (!name || !ws.current) return;
+        const parentDir = currentPath;
+        setStatusMessage(`Creating ${name}...`);
+        const type = isFolder ? 'create_folder' : 'create_file';
+        ws.current.send(JSON.stringify({ type, payload: { parentDir, name } }));
+    };
+
+    const handleDelete = (item: FilesystemItem) => {
+        if (!ws.current || !confirm(`Are you sure you want to delete ${item.name}?`)) return;
+        setStatusMessage(`Deleting ${item.name}...`);
+        ws.current.send(JSON.stringify({ type: 'delete', payload: { item }}));
+    }
+
+    const handleRename = () => {
+        const item = items.find(i => i.path === renamingItemPath);
+        if (item && renameValue && item.name !== renameValue && ws.current) {
+            setStatusMessage(`Renaming ${item.name}...`);
+            ws.current.send(JSON.stringify({ type: 'rename', payload: { item, newName: renameValue }}));
         }
-    }, [fetchAndExpand]);
+        setRenamingItemPath(null);
+    };
 
     const contextMenuItems = useMemo<ContextMenuItem[]>(() => {
         if (!contextMenu) return [];
-        const { item, isLocal } = contextMenu;
-        if (item.type !== 'folder') return []; // Only show context menu for folders for now
+        const { item } = contextMenu;
 
-        return [
-            { type: 'item', label: 'New Folder', onClick: () => handleCreate(true, item, isLocal) },
-            { type: 'item', label: 'New File', onClick: () => handleCreate(false, item, isLocal) },
-        ];
-    }, [contextMenu, handleCreate]);
+        if (item) {
+            return [
+                { type: 'item', label: 'Open', onClick: () => openItem(item) },
+                { type: 'separator' },
+                { type: 'item', label: 'Delete', onClick: () => handleDelete(item) },
+                { type: 'item', label: 'Rename', onClick: () => {
+                    setRenamingItemPath(item.path);
+                    setRenameValue(item.name);
+                }},
+            ];
+        } else {
+            return [
+                { type: 'item', label: 'New Folder', onClick: () => handleCreate(true) },
+                { type: 'item', label: 'New File', onClick: () => handleCreate(false) },
+                { type: 'separator' },
+                { type: 'item', label: 'Refresh', onClick: () => fetchItems(currentPath) },
+            ];
+        }
+    }, [contextMenu, openItem, items, currentPath, fetchItems]);
 
+    // --- Breadcrumbs ---
+    const breadcrumbParts = useMemo(() => {
+        if (currentPath === '.') return ['Home'];
+        if (currentPath === '/') return ['/'];
+        const parts = currentPath.split('/').filter(p => p);
+        return ['/', ...parts];
+    }, [currentPath]);
 
-    // --- RENDER ---
-    const buildTree = (
-        rootItems: FilesystemItem[], 
-        expandedPaths: Set<string>
-    ): FilesystemItem[] => {
-        const buildNode = (item: FilesystemItem): FilesystemItem => {
-            const newItem = { ...item };
-            if (expandedPaths.has(item.path) && item.children) {
-                newItem.children = item.children.map(buildNode);
-            } else {
-                delete newItem.children;
-            }
-            return newItem;
-        };
-        return rootItems.map(buildNode);
+    const handleBreadcrumbClick = (index: number) => {
+        if (breadcrumbParts[0] === 'Home' && index === 0) { navigateTo('.'); return; }
+        if (breadcrumbParts[0] === '/' && index === 0) { navigateTo('/'); return; }
+        const newPath = pathHelper.join('/', ...breadcrumbParts.slice(1, index + 1));
+        navigateTo(newPath);
     };
 
-    const renderedLocalTree = useMemo(() => buildTree(localTree, localExpanded), [localTree, localExpanded]);
-    const renderedRemoteTree = useMemo(() => buildTree(remoteTree, remoteExpanded), [remoteTree, remoteExpanded]);
-
-    const FileListPane: React.FC<{ isLocal: boolean }> = ({ isLocal }) => {
-        const title = isLocal ? 'Local Site' : 'Remote Site';
-        const tree = isLocal ? renderedLocalTree : renderedRemoteTree;
-        return (
-            <div className="flex flex-col h-full bg-black/50 rounded-md border border-zinc-800">
-                <div className="flex-shrink-0 p-2 border-b border-zinc-700">
-                    <h3 className="font-semibold">{title}</h3>
-                </div>
-                <div className="flex-grow overflow-auto custom-scrollbar p-1">
-                     <FileTree 
-                        items={tree}
-                        onFileClick={(item) => handleFileClick(item, isLocal)}
-                        onFolderClick={(item) => handleFolderClick(item, isLocal)}
-                        onItemContextMenu={(e, item) => onItemContextMenu(e, item, isLocal)}
-                     />
-                </div>
-            </div>
-        );
-    };
+    const quickAccessItems = [
+        { path: '.', label: 'Home', icon: <FolderIcon className="w-5 h-5 text-amber-400" isSmall/> },
+        { path: '/', label: 'Root', icon: <SftpIcon isSmall className="w-5 h-5 text-zinc-400"/> },
+    ];
 
     return (
         <div className="flex flex-col h-full bg-zinc-900 text-white select-none">
@@ -336,14 +300,81 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
                     <p>Please connect to a server to begin.</p>
                 </div>
             ) : (
-                <div className="flex-grow grid grid-cols-2 gap-3 p-3 overflow-hidden">
-                    <FileListPane isLocal={true} />
-                    <FileListPane isLocal={false} />
+                <div className="flex flex-grow overflow-hidden" onClick={() => setContextMenu(null)}>
+                    <aside className="w-56 flex-shrink-0 bg-zinc-900/50 p-2 flex flex-col border-r border-zinc-800">
+                         <h3 className="px-2 pb-2 text-xs font-semibold text-zinc-400">Remote locations</h3>
+                         <div className="space-y-1">
+                            {quickAccessItems.map(item => (
+                                <SidebarItem 
+                                    key={item.path}
+                                    icon={item.icon}
+                                    label={item.label}
+                                    onClick={() => navigateTo(item.path)}
+                                    isActive={currentPath === item.path}
+                                />
+                            ))}
+                        </div>
+                    </aside>
+                     <main className="flex-grow flex flex-col">
+                        <div className="flex-shrink-0 flex items-center space-x-2 p-2 border-b border-zinc-800 bg-black/50">
+                            <button onClick={goBack} disabled={historyIndex === 0} className="p-1.5 rounded hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed" title="Back">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                            </button>
+                             <button onClick={goUp} disabled={currentPath === '/' || currentPath === '.'} className="p-1.5 rounded hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed" title="Up">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>
+                            </button>
+                            <div className="flex items-center bg-zinc-900 rounded p-1 text-sm flex-grow">
+                                {breadcrumbParts.map((crumb, i) => (
+                                    <React.Fragment key={i}>
+                                        <button onClick={() => handleBreadcrumbClick(i)} className="px-2 py-0.5 hover:bg-zinc-800 rounded">
+                                            {crumb}
+                                        </button>
+                                        {i < breadcrumbParts.length - 1 && <span className="text-zinc-500 mx-1">&gt;</span>}
+                                    </React.Fragment>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="flex-grow p-4 overflow-y-auto custom-scrollbar relative" onContextMenu={handleBackgroundContextMenu}>
+                            {isLoading ? (
+                            <div className="absolute inset-0 flex items-center justify-center text-zinc-400">Loading...</div>
+                            ) : items.length > 0 ? (
+                                <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-4">
+                                    {items.map(item => (
+                                        <button 
+                                            key={item.path} 
+                                            onDoubleClick={() => openItem(item)} 
+                                            onContextMenu={(e) => onItemContextMenu(e, item)}
+                                            className="flex flex-col items-center p-2 rounded hover:bg-white/10 transition-colors text-center aspect-square relative focus:outline-none focus:bg-blue-500/30"
+                                        >
+                                            {item.type === 'folder' ? <FolderIcon className="w-12 h-12 text-amber-400" /> : getFileIcon(item.name)}
+                                            {renamingItemPath === item.path ? (
+                                                <input 
+                                                    type="text"
+                                                    value={renameValue}
+                                                    onChange={e => setRenameValue(e.target.value)}
+                                                    onBlur={handleRename}
+                                                    onKeyDown={e => e.key === 'Enter' && handleRename()}
+                                                    className="text-xs text-center text-black bg-white w-full border border-blue-500 mt-1.5"
+                                                    autoFocus
+                                                    onFocus={e => e.target.select()}
+                                                    onClick={e => e.stopPropagation()}
+                                                />
+                                            ) : (
+                                                <span className="text-xs mt-1.5 break-words w-full truncate">{item.name}</span>
+                                            )}
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-center text-zinc-400 mt-10">This folder is empty.</div>
+                            )}
+                        </div>
+                    </main>
                 </div>
             )}
             
-            <div className="flex-shrink-0 h-10 border-t border-zinc-700 p-2 flex items-center text-xs">
-                <p className="font-semibold mr-2">Status:</p> <div className="flex-grow text-zinc-400 p-1 truncate">{statusMessage}</div>
+            <div className="flex-shrink-0 h-8 border-t border-zinc-700 p-2 flex items-center text-xs">
+                <p className="font-semibold mr-2">Status:</p> <div className="flex-grow text-zinc-400 truncate">{statusMessage}</div>
             </div>
 
             {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} items={contextMenuItems} onClose={closeContextMenu} />}
