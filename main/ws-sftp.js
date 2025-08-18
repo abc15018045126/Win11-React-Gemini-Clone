@@ -79,29 +79,31 @@ function startSftpServer() {
                             payload: { path: reqPath, content: buffer.toString('utf8') }
                         }));
                     });
+                
+                } else if (data.type === 'find_unique_name' && sftp) {
+                    const { parentDir, baseName, isFolder } = data.payload;
+                    sftp.readdir(parentDir, (err, list) => {
+                        if (handleSftpError(err, 'find unique name in', parentDir)) return;
 
-                } else if (data.type === 'upload' && sftp) {
-                    const { remoteDir, fileName, fileData, encoding = 'base64' } = data.payload;
-                    const remotePath = path.posix.join(remoteDir, fileName);
-                    const buffer = Buffer.from(fileData, encoding);
-                    const stream = sftp.createWriteStream(remotePath);
-                    stream.on('error', (err) => handleSftpError(err, 'upload', remotePath));
-                    stream.on('finish', () => sendSuccess(`Uploaded ${fileName}`, remoteDir, false));
-                    stream.end(buffer);
+                        const existingNames = new Set(list.map(item => item.filename));
+                        let uniqueName = baseName;
+                        let counter = 0;
+                        const [namePart, extPart] = (() => {
+                            if (isFolder) return [baseName, ''];
+                            const lastDot = baseName.lastIndexOf('.');
+                            if (lastDot === -1 || lastDot === 0) return [baseName, ''];
+                            return [baseName.substring(0, lastDot), baseName.substring(lastDot)];
+                        })();
 
-                } else if (data.type === 'download' && sftp) {
-                    const { remotePath, localDir, fileName } = data.payload;
-                    const localDestPath = resolvePath(path.join(localDir, fileName));
-                    sftp.fastGet(remotePath, localDestPath, (err) => {
-                        if (handleSftpError(err, 'download', remotePath)) return;
-                        sendSuccess(`Downloaded ${fileName}`, localDir, true);
-                    });
+                        while (existingNames.has(uniqueName)) {
+                            counter++;
+                            uniqueName = `${namePart} (${counter})${extPart}`;
+                        }
 
-                } else if (data.type === 'move' && sftp) {
-                    const { sourcePath, destPath } = data.payload;
-                    sftp.rename(sourcePath, destPath, (err) => {
-                        if (handleSftpError(err, 'move', sourcePath)) return;
-                        sendSuccess(`Moved ${path.posix.basename(sourcePath)}`, path.posix.dirname(destPath), false);
+                        ws.send(JSON.stringify({
+                            type: 'unique_name_found',
+                            payload: { name: uniqueName, parentDir, isFolder }
+                        }));
                     });
 
                 } else if (data.type === 'create_folder' && sftp) {

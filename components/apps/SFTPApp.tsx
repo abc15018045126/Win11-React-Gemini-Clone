@@ -147,6 +147,11 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
                 case 'file_content':
                     handleOpenFileInNotebook(msg.payload.path, msg.payload.content);
                     break;
+                case 'unique_name_found':
+                    const { name, parentDir, isFolder } = msg.payload;
+                    const createType = isFolder ? 'create_folder' : 'create_file';
+                    ws.current?.send(JSON.stringify({ type: createType, payload: { parentDir, name } }));
+                    break;
                 case 'operation_success':
                     setStatusMessage(msg.payload.message);
                     if(msg.payload.dirToRefresh === currentPath) {
@@ -217,15 +222,6 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
         setContextMenu({ x: e.clientX, y: e.clientY });
     }
 
-    const handleCreate = (isFolder: boolean) => {
-        const name = prompt(`Enter name for new ${isFolder ? 'folder' : 'file'}:`);
-        if (!name || !ws.current) return;
-        const parentDir = currentPath;
-        setStatusMessage(`Creating ${name}...`);
-        const type = isFolder ? 'create_folder' : 'create_file';
-        ws.current.send(JSON.stringify({ type, payload: { parentDir, name } }));
-    };
-
     const handleDelete = (item: FilesystemItem) => {
         if (!ws.current || !confirm(`Are you sure you want to delete ${item.name}?`)) return;
         setStatusMessage(`Deleting ${item.name}...`);
@@ -256,9 +252,19 @@ const SFTPApp: React.FC<AppComponentProps> = ({ setTitle, openApp }) => {
                 }},
             ];
         } else {
+            const handleCreateFolder = () => {
+                if (!ws.current) return;
+                setStatusMessage('Creating new folder...');
+                ws.current.send(JSON.stringify({ type: 'find_unique_name', payload: { parentDir: currentPath, baseName: 'New folder', isFolder: true } }));
+            };
+            const handleCreateFile = () => {
+                if (!ws.current) return;
+                setStatusMessage('Creating new file...');
+                ws.current.send(JSON.stringify({ type: 'find_unique_name', payload: { parentDir: currentPath, baseName: 'New Text Document.txt', isFolder: false } }));
+            };
             return [
-                { type: 'item', label: 'New Folder', onClick: () => handleCreate(true) },
-                { type: 'item', label: 'New File', onClick: () => handleCreate(false) },
+                { type: 'item', label: 'New Folder', onClick: handleCreateFolder },
+                { type: 'item', label: 'New Text File', onClick: handleCreateFile },
                 { type: 'separator' },
                 { type: 'item', label: 'Refresh', onClick: () => fetchItems(currentPath) },
             ];
