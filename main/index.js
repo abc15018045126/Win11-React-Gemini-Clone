@@ -66,15 +66,12 @@ app.whenReady().then(() => {
         console.error(`[Main] Failed to set preload script for Chrome 1:`, error);
     }
     
-    // Add preload script for Chrome 4 to defeat frame-busting JS
-    try {
-        const chrome4Session = session.fromPartition('persist:chrome4');
-        chrome4Session.setPreloads([frameBusterPath]);
-        console.log(`[Main] Frame-buster preload script set for partition 'persist:chrome4'`);
-    } catch (error) {
-        console.error(`[Main] Failed to set preload script for Chrome 4:`, error);
-    }
+    // The frame-buster script for Chrome 4 was causing renderer crashes (black screen).
+    // It has been removed to improve stability. Header stripping is still active.
 
+    // Add preload script for Chrome 3, which doesn't use it.
+    // The preload for Chrome 4 has been removed.
+    
     createWindow();
 
     app.on('activate', function () {
