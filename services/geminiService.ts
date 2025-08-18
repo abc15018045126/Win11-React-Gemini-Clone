@@ -1,8 +1,25 @@
-
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 
 let ai: GoogleGenAI | null = null;
 let isInitializing = false;
+
+// Conditionally gets the API key from Electron IPC or the web API
+const getApiKey = async (): Promise<string | null> => {
+  if (window.electronAPI) {
+    return window.electronAPI.getApiKey();
+  }
+  try {
+    const response = await fetch('/api/key');
+    if (!response.ok) {
+        throw new Error('Failed to fetch API key from server');
+    }
+    const { apiKey } = await response.json();
+    return apiKey;
+  } catch (error) {
+    console.error("Error fetching API key via web:", error);
+    return null;
+  }
+};
 
 // Initialize the GoogleGenAI instance asynchronously
 const initializeAi = async () => {
@@ -10,17 +27,12 @@ const initializeAi = async () => {
   isInitializing = true;
   
   try {
-    const response = await fetch('/api/key');
-    if (!response.ok) {
-        throw new Error('Failed to fetch API key');
-    }
-    const { apiKey } = await response.json();
-    
+    const apiKey = await getApiKey();
     if (apiKey) {
       ai = new GoogleGenAI({ apiKey });
     } else {
       console.warn(
-        "Gemini API key not found. Please set the API_KEY in your .env file on the server. AI features will be disabled or return mock responses."
+        "Gemini API key not found. Please set the API_KEY in your .env file. AI features will be disabled or return mock responses."
       );
     }
   } catch (error) {
@@ -39,7 +51,7 @@ export const generateGeminiResponse = async (prompt: string): Promise<string> =>
   if (!ai) {
     // Fallback or error message if API key is not available
     await new Promise(resolve => setTimeout(resolve, 500)); // Simulate delay
-    return "Gemini API is not configured. Please ensure the API_KEY environment variable is set on the server. This is a mock response.";
+    return "Gemini API is not configured. Please ensure the API_KEY environment variable is set. This is a mock response.";
   }
 
   try {

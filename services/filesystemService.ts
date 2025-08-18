@@ -1,114 +1,123 @@
-
 import { ProjectFile, FilesystemItem } from '../types';
 
-// This service communicates with the backend Node.js server via a REST API.
+// This service intelligently adapts to its environment.
+// It uses the fast Electron IPC if available, otherwise it falls back to the web API.
 
-// Helper function to handle fetch requests and errors
-async function apiRequest<T>(endpoint: string, options?: RequestInit): Promise<T | null> {
+const api = window.electronAPI;
+const isElectron = !!api;
+
+// --- Web API Fetcher (only used if not in Electron) ---
+async function apiRequest<T>(endpoint: string, options?: RequestInit): Promise<T> {
     try {
         const response = await fetch(endpoint, options);
         if (!response.ok) {
-            console.error(`API Error on ${endpoint}: ${response.status} ${response.statusText}`);
-            return null;
+            const errorText = await response.text();
+            console.error(`API Error on ${endpoint}: ${response.status} ${response.statusText} - ${errorText}`);
+            // Return a sensible default or throw an error based on function signature
+            if (endpoint.includes('list')) return [] as unknown as T;
+            throw new Error(`API request failed: ${errorText}`);
         }
-        if (response.headers.get('Content-Type')?.includes('application/json')) {
-            return response.json() as Promise<T>;
+        // Handle responses with no content (e.g., successful POST/DELETE)
+        if (response.status === 204 || response.headers.get('Content-Length') === '0') {
+             return true as unknown as T;
         }
-        return response as T;
+        return response.json();
     } catch (error) {
         console.error(`Network Error on ${endpoint}:`, error);
-        return null;
+        if (endpoint.includes('list')) return [] as unknown as T;
+        throw error;
     }
 }
 
 // --- Exported API ---
-export const listDirectory = async (path: string): Promise<FilesystemItem[]> => {
-    const result = await apiRequest<FilesystemItem[]>(`/api/fs/list?path=${encodeURIComponent(path)}`);
-    return result || [];
+
+export const listDirectory = (path: string): Promise<FilesystemItem[]> => {
+    if (isElectron) return api.listDirectory(path);
+    return apiRequest<FilesystemItem[]>(`/api/fs/list?path=${encodeURIComponent(path)}`);
 };
 
 export const readFile = (path: string): Promise<ProjectFile | null> => {
-    return apiRequest<ProjectFile>(`/api/fs/read?path=${encodeURIComponent(path)}`);
+    if (isElectron) return api.readFile(path);
+    return apiRequest<ProjectFile | null>(`/api/fs/read?path=${encodeURIComponent(path)}`);
 };
 
-export const saveFile = async (path: string, content: string): Promise<boolean> => {
-    const result = await apiRequest(`/api/fs/save`, {
+export const saveFile = (path: string, content: string): Promise<boolean> => {
+    if (isElectron) return api.saveFile(path, content);
+    return apiRequest(`/api/fs/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path, content }),
     });
-    return !!result;
 };
 
-export const findUniqueName = async (destinationPath: string, baseName: string, isFolder: boolean, extension: string = ''): Promise<string> => {
-    const result = await apiRequest<{ name: string }>(`/api/fs/findUniqueName`, {
+export const findUniqueName = (destinationPath: string, baseName: string, isFolder: boolean, extension: string = ''): Promise<string> => {
+    if (isElectron) return api.findUniqueName(destinationPath, baseName, isFolder, extension);
+    return apiRequest<{ name: string }>(`/api/fs/findUniqueName`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ destinationPath, baseName, isFolder, extension }),
-    });
-    return result?.name || `${baseName}${extension}`;
+    }).then(result => result.name);
 };
 
-export const createFolder = async (path: string, name: string): Promise<boolean> => {
-    const result = await apiRequest(`/api/fs/createFolder`, {
+export const createFolder = (path: string, name: string): Promise<boolean> => {
+    if (isElectron) return api.createFolder(path, name);
+    return apiRequest(`/api/fs/createFolder`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path, name }),
     });
-    return !!result;
 };
 
-export const createFile = async (path: string, name: string, content: string): Promise<boolean> => {
-    const result = await apiRequest(`/api/fs/createFile`, {
+export const createFile = (path: string, name: string, content: string): Promise<boolean> => {
+    if (isElectron) return api.createFile(path, name, content);
+    return apiRequest(`/api/fs/createFile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path, name, content }),
     });
-    return !!result;
 };
 
-export const createAppShortcut = async (appId: string, appName: string): Promise<boolean> => {
-    const result = await apiRequest(`/api/fs/createAppShortcut`, {
+export const createAppShortcut = (appId: string, appName: string): Promise<boolean> => {
+    if (isElectron) return api.createAppShortcut(appId, appName);
+    return apiRequest(`/api/fs/createAppShortcut`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ appId, appName })
+        body: JSON.stringify({ appId, appName }),
     });
-    return !!result;
 };
 
-
-export const deleteItem = async (item: FilesystemItem): Promise<boolean> => {
-    const result = await apiRequest(`/api/fs/delete`, {
+export const deleteItem = (item: FilesystemItem): Promise<boolean> => {
+    if (isElectron) return api.deleteItem(item);
+    return apiRequest(`/api/fs/delete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ item }),
     });
-    return !!result;
 };
 
-export const renameItem = async (item: FilesystemItem, newName: string): Promise<boolean> => {
-    const result = await apiRequest(`/api/fs/rename`, {
+export const renameItem = (item: FilesystemItem, newName: string): Promise<boolean> => {
+    if (isElectron) return api.renameItem(item, newName);
+    return apiRequest(`/api/fs/rename`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ item, newName }),
     });
-    return !!result;
 };
 
-export const moveItem = async (sourceItem: FilesystemItem, destinationPath: string): Promise<boolean> => {
-    const result = await apiRequest(`/api/fs/move`, {
+export const moveItem = (sourceItem: FilesystemItem, destinationPath: string): Promise<boolean> => {
+    if (isElectron) return api.moveItem(sourceItem, destinationPath);
+    return apiRequest(`/api/fs/move`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sourceItem, destinationPath }),
     });
-    return !!result;
 };
 
-export const copyItem = async (sourceItem: FilesystemItem, destinationPath: string): Promise<boolean> => {
-    const result = await apiRequest(`/api/fs/copy`, {
+export const copyItem = (sourceItem: FilesystemItem, destinationPath: string): Promise<boolean> => {
+    if (isElectron) return api.copyItem(sourceItem, destinationPath);
+    return apiRequest(`/api/fs/copy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sourceItem, destinationPath }),
     });
-    return !!result;
 };

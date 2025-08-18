@@ -1,4 +1,3 @@
-
 import type { AppDefinition } from '../../types';
 
 import { appDefinition as aboutAppDefinition } from './About';
@@ -8,6 +7,7 @@ import { appDefinition as hyperAppDefinition } from './Hyper';
 import { appDefinition as notebookAppDefinition } from './Notebook';
 import { appDefinition as settingsAppDefinition } from './Settings';
 import { appDefinition as chromeAppDefinition } from './Chrome';
+import { appDefinition as chrome2AppDefinition } from './Chrome2';
 import { appDefinition as terminusAppDefinition } from './Terminus';
 import { appDefinition as sftpAppDefinition } from './SFTP';
 import { appDefinition as appStoreAppDefinition } from './AppStore';
@@ -26,6 +26,7 @@ export const APP_DEFINITIONS: AppDefinition[] = [
   sftpAppDefinition,
   terminusAppDefinition,
   chromeAppDefinition,
+  chrome2AppDefinition,
   fileExplorerAppDefinition,
   geminiChatAppDefinition,
   hyperAppDefinition,

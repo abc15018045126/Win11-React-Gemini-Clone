@@ -1,5 +1,28 @@
 import { ReactNode } from 'react';
 
+export interface IElectronAPI {
+  getApiKey: () => Promise<string | null>;
+  listDirectory: (path: string) => Promise<FilesystemItem[]>;
+  readFile: (path: string) => Promise<ProjectFile | null>;
+  saveFile: (path: string, content: string) => Promise<boolean>;
+  findUniqueName: (destinationPath: string, baseName: string, isFolder: boolean, extension?: string) => Promise<string>;
+  createFolder: (path: string, name: string) => Promise<boolean>;
+  createFile: (path: string, name: string, content: string) => Promise<boolean>;
+  createAppShortcut: (appId: string, appName: string) => Promise<boolean>;
+  deleteItem: (item: FilesystemItem) => Promise<boolean>;
+  renameItem: (item: FilesystemItem, newName: string) => Promise<boolean>;
+  moveItem: (sourceItem: FilesystemItem, destinationPath: string) => Promise<boolean>;
+  copyItem: (sourceItem: FilesystemItem, destinationPath: string) => Promise<boolean>;
+  launchExternalApp: (path: string) => Promise<boolean>;
+}
+
+declare global {
+  interface Window {
+    electronAPI?: IElectronAPI;
+  }
+}
+
+
 export interface AppIconProps {
   className?: string;
   isSmall?: boolean; // For smaller icon variants, e.g. in taskbar
