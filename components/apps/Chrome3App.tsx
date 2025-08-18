@@ -52,7 +52,8 @@ const Chrome3App: React.FC<AppComponentProps> = ({ setTitle: setWindowTitle, app
     useEffect(() => {
         if (openApp) {
             console.log("Launching headless proxy for Chrome 3...");
-            openApp('chrome3', { args: ['--headless'] });
+            // Use the dedicated backend app definition ID
+            openApp('chrome3-proxy-backend', { args: ['--headless'] });
         } else {
             console.error("openApp function is not available. Cannot launch proxy backend.");
         }
@@ -152,15 +153,24 @@ const Chrome3App: React.FC<AppComponentProps> = ({ setTitle: setWindowTitle, app
     );
 };
 
+// Hidden app definition for the headless proxy backend process
+export const chrome3ProxyBackendDefinition: AppDefinition = {
+  id: 'chrome3-proxy-backend',
+  name: 'Chrome 3 Proxy Backend',
+  icon: () => null, // No icon, not user-facing
+  component: () => null, // No component, not user-facing
+  isExternal: true, 
+  externalPath: 'components/apps/chrome3',
+};
+
+// Main, user-facing app definition for the browser UI
 export const appDefinition: AppDefinition = {
   id: 'chrome3',
   name: 'Chrome 3 (Proxy)',
   icon: Browser3Icon,
   component: Chrome3App,
-  // This is no longer an external UI, but we keep the external parts for the proxy backend
-  isExternal: true, 
-  externalPath: 'components/apps/chrome3',
-  isPinnedToTaskbar: false,
+  isExternal: false, // This makes it an internal app window
+  isPinnedToTaskbar: true,
   defaultSize: { width: 900, height: 650 },
 };
 
