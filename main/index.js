@@ -51,13 +51,24 @@ app.whenReady().then(() => {
     startChrome3Proxy(); // Start the new SOCKS5 proxy client for Chrome 3
     
     // Apply header stripping to enable loading restricted sites in webviews
+    setupHeaderStripping('persist:chrome1');
     setupHeaderStripping('persist:chrome3');
     setupHeaderStripping('persist:chrome4'); // <-- Apply fix to Chrome 4
 
+    const frameBusterPath = path.join(__dirname, 'frame-buster.js');
+
+    // Add preload script for Chrome 1 to defeat frame-busting JS
+    try {
+        const chrome1Session = session.fromPartition('persist:chrome1');
+        chrome1Session.setPreloads([frameBusterPath]);
+        console.log(`[Main] Frame-buster preload script set for partition 'persist:chrome1'`);
+    } catch (error) {
+        console.error(`[Main] Failed to set preload script for Chrome 1:`, error);
+    }
+    
     // Add preload script for Chrome 4 to defeat frame-busting JS
     try {
         const chrome4Session = session.fromPartition('persist:chrome4');
-        const frameBusterPath = path.join(__dirname, 'frame-buster.js');
         chrome4Session.setPreloads([frameBusterPath]);
         console.log(`[Main] Frame-buster preload script set for partition 'persist:chrome4'`);
     } catch (error) {

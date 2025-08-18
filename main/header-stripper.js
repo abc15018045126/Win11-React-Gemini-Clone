@@ -22,35 +22,23 @@ function setupHeaderStripping(partitionName) {
 
         ses.webRequest.onHeadersReceived(filter, (details, callback) => {
             if (details.responseHeaders) {
-                const headers = details.responseHeaders;
-                const headerKeys = Object.keys(headers);
-
-                headerKeys.forEach(key => {
-                    const lowerCaseKey = key.toLowerCase();
-
-                    // Remove X-Frame-Options, which is a common way to block iframing.
-                    if (lowerCaseKey === 'x-frame-options') {
+                // Create a mutable copy of the response headers
+                const headers = { ...details.responseHeaders };
+                
+                // Find and delete headers case-insensitively, as requested.
+                const headersToDelete = ['x-frame-options', 'content-security-policy'];
+                for (const key in headers) {
+                    if (headersToDelete.includes(key.toLowerCase())) {
                         delete headers[key];
                     }
-
-                    // Modify Content-Security-Policy to remove the 'frame-ancestors' directive.
-                    if (lowerCaseKey === 'content-security-policy') {
-                        const cspValues = headers[key];
-                        const newCspValues = cspValues.map(value =>
-                            // This regex removes 'frame-ancestors' and its values, then cleans up.
-                            value.replace(/frame-ancestors[^;]+;?/gi, '').trim()
-                        ).filter(v => v); // Filter out any empty strings that result
-
-                        if (newCspValues.length > 0) {
-                            headers[key] = newCspValues;
-                        } else {
-                            // If removing frame-ancestors leaves the CSP empty, remove the header entirely.
-                            delete headers[key];
-                        }
-                    }
-                });
+                }
+                
+                // The callback expects an object with a `responseHeaders` property.
+                callback({ responseHeaders: headers });
+            } else {
+                // If there are no headers, just continue.
+                callback({});
             }
-            callback({ responseHeaders: details.responseHeaders });
         });
         
         console.log(`[HeaderStripper] Successfully attached web request listener to partition: ${partitionName}`);
