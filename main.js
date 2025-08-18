@@ -15,6 +15,7 @@ require('dotenv').config();
 const isDev = !app.isPackaged;
 const API_PORT = 3001;
 const WS_PORT = 3002;
+const SFTP_WS_PORT = 3003;
 
 // --- Filesystem Setup ---
 const FS_ROOT = __dirname;
@@ -310,6 +311,78 @@ wss.on('connection', (ws) => {
     });
 });
 
+// --- SFTP WebSocket Server ---
+const sftpWss = new WebSocketServer({ port: SFTP_WS_PORT });
+const sftpConnections = new Map();
+
+sftpWss.on('connection', (ws) => {
+    const connectionId = `sftp-${Math.random().toString(36).substring(2, 9)}`;
+    console.log(`[SFTP] WebSocket client connected: ${connectionId}`);
+
+    ws.on('message', (message) => {
+        try {
+            const data = JSON.parse(message);
+            const connDetails = sftpConnections.get(connectionId);
+            
+            if (data.type === 'connect') {
+                const { host, port, username, password } = data.payload;
+                const conn = new Client();
+                sftpConnections.set(connectionId, { ws, ssh: conn });
+
+                conn.on('ready', () => {
+                    conn.sftp((err, sftp) => {
+                        if (err) {
+                            ws.send(JSON.stringify({ type: 'error', payload: `SFTP Error: ${err.message}` }));
+                            return;
+                        }
+                        sftpConnections.get(connectionId).sftp = sftp;
+                        ws.send(JSON.stringify({ type: 'status', payload: 'connected' }));
+                    });
+                }).on('error', (err) => {
+                    ws.send(JSON.stringify({ type: 'error', payload: `Connection Error: ${err.message}` }));
+                    sftpConnections.delete(connectionId);
+                }).on('close', () => {
+                    ws.send(JSON.stringify({ type: 'status', payload: 'disconnected' }));
+                    sftpConnections.delete(connectionId);
+                }).connect({ host, port: parseInt(port, 10) || 22, username, password, readyTimeout: 20000 });
+            
+            } else if (data.type === 'list' && connDetails?.sftp) {
+                const sftp = connDetails.sftp;
+                const reqPath = data.payload || '.';
+                sftp.readdir(reqPath, (err, list) => {
+                    if (err) {
+                        ws.send(JSON.stringify({ type: 'error', payload: `SFTP list error: ${err.message}` }));
+                        return;
+                    }
+                    const items = list.map(item => ({
+                        name: item.filename,
+                        path: path.join(reqPath, item.filename).replace(/\\/g, '/'), // Normalize path
+                        type: item.longname.startsWith('d') ? 'folder' : 'file',
+                        size: item.attrs.size,
+                        modified: item.attrs.mtime,
+                    }));
+                    ws.send(JSON.stringify({ type: 'list', payload: { path: reqPath, items } }));
+                });
+            } else if (data.type === 'disconnect' && connDetails?.ssh) {
+                connDetails.ssh.end();
+            }
+
+        } catch (e) {
+            console.error(`[SFTP] Error processing WebSocket message from ${connectionId}:`, e);
+        }
+    });
+
+    ws.on('close', () => {
+        console.log(`[SFTP] WebSocket client disconnected: ${connectionId}`);
+        const connDetails = sftpConnections.get(connectionId);
+        if (connDetails?.ssh) {
+            connDetails.ssh.end();
+        }
+        sftpConnections.delete(connectionId);
+    });
+});
+
+
 // --- Electron App Window ---
 
 function createWindow() {
@@ -345,6 +418,8 @@ app.whenReady().then(() => {
   
   // Log WebSocket server start
   console.log(`✅ Terminus WebSocket server listening on ws://localhost:${WS_PORT}`);
+  console.log(`✅ SFTP WebSocket server listening on ws://localhost:${SFTP_WS_PORT}`);
+
 
   createWindow();
 
