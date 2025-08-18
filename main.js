@@ -1,4 +1,3 @@
-
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -11,51 +10,45 @@ require('dotenv').config();
 const isDev = !app.isPackaged;
 
 // --- Filesystem Setup ---
-const VIRTUAL_FS_ROOT = path.join(app.getPath('userData'), 'VirtualFS');
+// Per user request, the root directory is now the application's directory (__dirname).
+// WARNING: This allows the frontend to read and write files relative to the application's
+// root directory. This is not secure for a production application but is implemented as requested.
+const FS_ROOT = __dirname;
 
-// Security: Ensure a given path is safely within our virtual filesystem root
-function safeJoin(relativePath) {
-  // Normalize the path to handle separators consistently
-  const normalizedRelativePath = path.normalize(relativePath);
-  const absolutePath = path.join(VIRTUAL_FS_ROOT, normalizedRelativePath);
-  
-  // Also normalize the root for comparison
-  if (!absolutePath.startsWith(path.normalize(VIRTUAL_FS_ROOT))) {
-    throw new Error('Path traversal attempt detected');
-  }
-  return absolutePath;
+// Function to resolve a relative path from the frontend to a full path on the filesystem.
+// The sandboxing from the original safeJoin has been removed as per user instructions.
+function resolvePath(relativePath) {
+  return path.join(FS_ROOT, relativePath);
 }
 
-// Function to set up the initial directory structure and files on first launch
+// Function to ensure essential directories for the UI (like Desktop) exist.
 function setupInitialFilesystem() {
-    if (fs.existsSync(VIRTUAL_FS_ROOT)) return;
+    console.log('Ensuring essential directories exist in project root...');
 
-    console.log('Performing first-time filesystem setup...');
-    fs.mkdirSync(VIRTUAL_FS_ROOT, { recursive: true });
-
-    const desktopPath = path.join(VIRTUAL_FS_ROOT, 'Desktop');
-    fs.mkdirSync(desktopPath, { recursive: true });
-
-    // Add new folders for sidebar
-    const documentsPath = path.join(VIRTUAL_FS_ROOT, 'Documents');
-    fs.mkdirSync(documentsPath, { recursive: true });
-    const downloadsPath = path.join(VIRTUAL_FS_ROOT, 'Downloads');
-    fs.mkdirSync(downloadsPath, { recursive: true });
-
-    // Create a readme in documents
-    fs.writeFileSync(path.join(documentsPath, 'readme.txt'), 'This is your Documents folder.');
+    const directoriesToEnsure = ['Desktop', 'Documents', 'Downloads'];
     
-    // Create default app shortcuts for essential apps only
+    directoriesToEnsure.forEach(dir => {
+        const dirPath = path.join(FS_ROOT, dir);
+        if (!fs.existsSync(dirPath)) {
+            fs.mkdirSync(dirPath, { recursive: true });
+            console.log(`Created directory: ${dirPath}`);
+        }
+    });
+    
+    // Create default app shortcuts on the desktop only if they don't exist.
+    const desktopPath = path.join(FS_ROOT, 'Desktop');
     const defaultApps = [
         { appId: 'appStore', name: 'App Store' },
         { appId: 'fileExplorer', name: 'File Explorer' },
         { appId: 'settings', name: 'Settings' },
     ];
 
-    defaultApps.forEach(app => {
-        const appShortcutPath = path.join(desktopPath, `${app.name}.app`);
-        const shortcutContent = JSON.stringify({ appId: app.appId });
-        fs.writeFileSync(appShortcutPath, shortcutContent);
+    defaultApps.forEach(appDef => {
+        const appShortcutPath = path.join(desktopPath, `${appDef.name}.app`);
+        if (!fs.existsSync(appShortcutPath)) {
+            const shortcutContent = JSON.stringify({ appId: appDef.appId });
+            fs.writeFileSync(appShortcutPath, shortcutContent);
+        }
     });
 }
 
@@ -135,7 +128,7 @@ ipcMain.handle('app:launchExternal', (event, relativeAppPath) => {
 
 ipcMain.handle('fs:listDirectory', async (event, relativePath) => {
     try {
-        const dirPath = safeJoin(relativePath);
+        const dirPath = resolvePath(relativePath);
         if (!fs.existsSync(dirPath)) return [];
 
         const files = await fs.promises.readdir(dirPath);
@@ -167,7 +160,7 @@ ipcMain.handle('fs:listDirectory', async (event, relativePath) => {
 
 ipcMain.handle('fs:readFile', async (event, relativePath) => {
     try {
-        const filePath = safeJoin(relativePath);
+        const filePath = resolvePath(relativePath);
         const content = await fs.promises.readFile(filePath, 'utf-8');
         return {
             name: path.basename(relativePath),
@@ -182,7 +175,7 @@ ipcMain.handle('fs:readFile', async (event, relativePath) => {
 
 ipcMain.handle('fs:saveFile', async (event, relativePath, content) => {
     try {
-        const filePath = safeJoin(relativePath);
+        const filePath = resolvePath(relativePath);
         await fs.promises.writeFile(filePath, content, 'utf-8');
         return true;
     } catch (error) {
@@ -192,7 +185,7 @@ ipcMain.handle('fs:saveFile', async (event, relativePath, content) => {
 });
 
 ipcMain.handle('fs:findUniqueName', async (event, destRelativePath, baseName, isFolder, extension) => {
-    const destPath = safeJoin(destRelativePath);
+    const destPath = resolvePath(destRelativePath);
     let counter = 0;
     let newName = `${baseName}${isFolder ? '' : extension}`;
     let fullPath = path.join(destPath, newName);
@@ -207,7 +200,7 @@ ipcMain.handle('fs:findUniqueName', async (event, destRelativePath, baseName, is
 
 ipcMain.handle('fs:createFolder', async (event, relativePath, name) => {
     try {
-        const folderPath = safeJoin(path.join(relativePath, name));
+        const folderPath = resolvePath(path.join(relativePath, name));
         await fs.promises.mkdir(folderPath, { recursive: true });
         return true;
     } catch (error) {
@@ -218,7 +211,7 @@ ipcMain.handle('fs:createFolder', async (event, relativePath, name) => {
 
 ipcMain.handle('fs:createFile', async (event, relativePath, name, content) => {
     try {
-        const filePath = safeJoin(path.join(relativePath, name));
+        const filePath = resolvePath(path.join(relativePath, name));
         await fs.promises.writeFile(filePath, content, 'utf-8');
         return true;
     } catch (error) {
@@ -229,7 +222,7 @@ ipcMain.handle('fs:createFile', async (event, relativePath, name, content) => {
 
 ipcMain.handle('fs:createAppShortcut', async (event, appId, appName) => {
     try {
-        const shortcutPath = safeJoin(`/Desktop/${appName}.app`);
+        const shortcutPath = resolvePath(path.join('Desktop', `${appName}.app`));
         const shortcutContent = JSON.stringify({ appId });
         await fs.promises.writeFile(shortcutPath, shortcutContent, 'utf-8');
         return true;
@@ -241,7 +234,7 @@ ipcMain.handle('fs:createAppShortcut', async (event, appId, appName) => {
 
 ipcMain.handle('fs:deleteItem', async (event, item) => {
     try {
-        const itemPath = safeJoin(item.path);
+        const itemPath = resolvePath(item.path);
         if (item.type === 'folder') {
             await fs.promises.rm(itemPath, { recursive: true, force: true });
         } else {
@@ -256,8 +249,8 @@ ipcMain.handle('fs:deleteItem', async (event, item) => {
 
 ipcMain.handle('fs:renameItem', async (event, item, newName) => {
     try {
-        const oldPath = safeJoin(item.path);
-        const newPath = safeJoin(path.join(path.dirname(item.path), newName));
+        const oldPath = resolvePath(item.path);
+        const newPath = resolvePath(path.join(path.dirname(item.path), newName));
         await fs.promises.rename(oldPath, newPath);
         return true;
     } catch (error) {
@@ -268,8 +261,8 @@ ipcMain.handle('fs:renameItem', async (event, item, newName) => {
 
 ipcMain.handle('fs:moveItem', async (event, sourceItem, destRelativePath) => {
     try {
-        const sourcePath = safeJoin(sourceItem.path);
-        const destPath = safeJoin(path.join(destRelativePath, sourceItem.name));
+        const sourcePath = resolvePath(sourceItem.path);
+        const destPath = resolvePath(path.join(destRelativePath, sourceItem.name));
         await fs.promises.rename(sourcePath, destPath);
         return true;
     } catch (error) {
@@ -280,8 +273,8 @@ ipcMain.handle('fs:moveItem', async (event, sourceItem, destRelativePath) => {
 
 ipcMain.handle('fs:copyItem', async (event, sourceItem, destRelativePath) => {
     try {
-        const sourcePath = safeJoin(sourceItem.path);
-        const destPath = safeJoin(path.join(destRelativePath, sourceItem.name));
+        const sourcePath = resolvePath(sourceItem.path);
+        const destPath = resolvePath(path.join(destRelativePath, sourceItem.name));
         await fs.promises.cp(sourcePath, destPath, { recursive: true });
         return true;
     } catch (error) {
