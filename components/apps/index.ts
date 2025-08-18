@@ -9,6 +9,7 @@ import { appDefinition as settingsAppDefinition } from './SettingsApp';
 import { appDefinition as chromeAppDefinition } from './ChromeApp';
 import { appDefinition as chrome2AppDefinition } from './Chrome2App';
 import { appDefinition as terminusAppDefinition } from './TerminusApp';
+import { appDefinition as terminusSshAppDefinition } from './TerminusSshApp';
 import { appDefinition as sftpAppDefinition } from './SFTPApp';
 import { appDefinition as appStoreAppDefinition } from './AppStoreApp';
 import { appDefinition as themeAppDefinition } from './ThemeApp';
@@ -24,7 +25,8 @@ export const APP_DEFINITIONS: AppDefinition[] = [
   appStoreAppDefinition,
   themeAppDefinition,
   sftpAppDefinition,
-  terminusAppDefinition,
+  terminusAppDefinition, // New simplified local terminal
+  terminusSshAppDefinition, // The original multi-host terminal
   chromeAppDefinition,
   chrome2AppDefinition,
   fileExplorerAppDefinition,

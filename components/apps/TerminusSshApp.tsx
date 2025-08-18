@@ -4,8 +4,9 @@ import { HyperIcon as TerminusIcon } from '../../constants';
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
-const TerminusApp: React.FC<AppComponentProps> = ({ setTitle }) => {
+const TerminusSshApp: React.FC<AppComponentProps> = ({ setTitle }) => {
     const [status, setStatus] = useState<ConnectionStatus>('disconnected');
+    const [host, setHost] = useState('');
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [output, setOutput] = useState('');
@@ -15,10 +16,9 @@ const TerminusApp: React.FC<AppComponentProps> = ({ setTitle }) => {
     const ws = useRef<WebSocket | null>(null);
     const terminalBodyRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
-    const host = '127.0.0.1'; // Hardcoded for local connection
 
     useEffect(() => {
-        setTitle(`Terminus - ${status}`);
+        setTitle(`Terminus SSH - ${status}`);
     }, [setTitle, status]);
 
     // Fetch current OS user to pre-fill the form
@@ -27,11 +27,12 @@ const TerminusApp: React.FC<AppComponentProps> = ({ setTitle }) => {
             .then(res => res.ok ? res.json() : Promise.reject('Failed to fetch user'))
             .then(data => {
                 setUsername(data.username || '');
+                setHost('127.0.0.1');
             })
             .catch(err => {
                 console.error("Couldn't fetch OS username:", err);
-                setOutput("Could not get local username.\n");
-                setErrorMsg("Could not get local username. You may need to restart the application.");
+                setOutput("Could not get local username. Please enter it manually.\n");
+                setHost('127.0.0.1');
             });
     }, []);
     
@@ -57,8 +58,8 @@ const TerminusApp: React.FC<AppComponentProps> = ({ setTitle }) => {
     }, []);
 
     const handleConnect = useCallback(() => {
-        if (!username || !password) {
-            setErrorMsg('Password is required.');
+        if (!host || !username || !password) {
+            setErrorMsg('Host, username, and password are required.');
             return;
         }
 
@@ -137,26 +138,24 @@ const TerminusApp: React.FC<AppComponentProps> = ({ setTitle }) => {
             {status !== 'connected' ? (
                 // --- Connection View ---
                 <div className="flex-grow flex items-center justify-center p-8">
-                    <div className="w-full max-w-sm bg-zinc-800 p-6 rounded-lg shadow-lg text-center">
-                        <h2 className="text-xl font-bold mb-2">Local Terminal</h2>
-                        <p className="text-sm text-zinc-400 mb-4">
-                            Connect to <span className="font-semibold text-cyan-400">{username}@{host}</span>
-                        </p>
-                        <div className="space-y-4 text-left">
+                    <div className="w-full max-w-sm bg-zinc-800 p-6 rounded-lg shadow-lg">
+                        <h2 className="text-xl font-bold text-center mb-4">New SSH Connection</h2>
+                        <div className="space-y-4">
                             <div>
-                                <label className="block text-xs text-zinc-400 mb-1">Password for {username}</label>
-                                <input 
-                                  type="password" 
-                                  value={password} 
-                                  onChange={e => setPassword(e.target.value)} 
-                                  onKeyDown={e => e.key === 'Enter' && handleConnect()} 
-                                  className="w-full bg-zinc-900 p-2 rounded border border-zinc-700 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                                  autoFocus
-                                />
+                                <label className="block text-xs text-zinc-400 mb-1">Host</label>
+                                <input type="text" value={host} onChange={e => setHost(e.target.value)} className="w-full bg-zinc-900 p-2 rounded border border-zinc-700 focus:ring-blue-500 focus:border-blue-500 outline-none"/>
+                            </div>
+                             <div>
+                                <label className="block text-xs text-zinc-400 mb-1">Username</label>
+                                <input type="text" value={username} onChange={e => setUsername(e.target.value)} className="w-full bg-zinc-900 p-2 rounded border border-zinc-700 focus:ring-blue-500 focus:border-blue-500 outline-none"/>
+                            </div>
+                            <div>
+                                <label className="block text-xs text-zinc-400 mb-1">Password</label>
+                                <input type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleConnect()} className="w-full bg-zinc-900 p-2 rounded border border-zinc-700 focus:ring-blue-500 focus:border-blue-500 outline-none"/>
                             </div>
                         </div>
                         {errorMsg && <p className="text-red-400 text-xs mt-4 text-center">{errorMsg}</p>}
-                        <button onClick={handleConnect} disabled={status === 'connecting' || !username} className="w-full mt-6 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-600 p-2 rounded font-semibold transition-colors">
+                        <button onClick={handleConnect} disabled={status === 'connecting'} className="w-full mt-6 bg-blue-600 hover:bg-blue-700 disabled:bg-zinc-600 p-2 rounded font-semibold transition-colors">
                             {status === 'connecting' ? 'Connecting...' : 'Connect'}
                         </button>
                     </div>
@@ -194,11 +193,11 @@ const TerminusApp: React.FC<AppComponentProps> = ({ setTitle }) => {
 };
 
 export const appDefinition: AppDefinition = {
-  id: 'terminus',
-  name: 'Terminus',
+  id: 'terminusSsh',
+  name: 'Terminus SSH',
   icon: TerminusIcon,
-  component: TerminusApp,
+  component: TerminusSshApp,
   defaultSize: { width: 800, height: 500 },
 };
 
-export default TerminusApp;
+export default TerminusSshApp;
