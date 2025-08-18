@@ -31,7 +31,7 @@ function startChrome3Proxy() {
             }
 
             if (stage === 1) {
-                // SOCKS5 Connection Request
+                // SOCKS5 Connection Request - after this, the listener will be removed.
                 clientSocket.removeListener('data', onData);
                 const [ver, cmd, rsv, atyp] = data;
                 if (ver !== 5 || cmd !== 1) {
