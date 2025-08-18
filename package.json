@@ -1,3 +1,4 @@
+
 {
   "name": "win11-react-gemini-clone-electron",
   "version": "1.0.0",
@@ -17,7 +18,7 @@
     "vite": "^5.0.0"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
+    "@google/genai": "^1.14.0",
     "dotenv": "^16.3.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"

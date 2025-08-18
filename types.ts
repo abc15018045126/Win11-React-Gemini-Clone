@@ -1,3 +1,4 @@
+
 import { ReactNode } from 'react';
 
 export interface AppIconProps {
@@ -48,6 +49,8 @@ export interface AppDefinition {
   component: AppComponentType;
   defaultSize?: { width: number; height: number };
   isPinnedToTaskbar?: boolean; // To show on taskbar by default
+  isExternal?: boolean; // If true, this app is launched as a separate process
+  externalPath?: string; // Path to the external app's root directory
 }
 
 export interface OpenApp extends AppDefinition {
@@ -83,6 +86,7 @@ export interface IElectronAPI {
   renameItem: (item: FilesystemItem, newName: string) => Promise<boolean>;
   moveItem: (sourceItem: FilesystemItem, destinationPath: string) => Promise<boolean>;
   copyItem: (sourceItem: FilesystemItem, destinationPath: string) => Promise<boolean>;
+  launchExternalApp: (path: string) => Promise<boolean>;
 }
 
 declare global {

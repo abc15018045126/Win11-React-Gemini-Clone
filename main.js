@@ -1,7 +1,9 @@
+
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { spawn } = require('child_process');
 
 // Load environment variables from a .env file if it exists
 require('dotenv').config();
@@ -103,7 +105,36 @@ app.on('window-all-closed', function () {
 // --- IPC Handlers for Filesystem API ---
 
 ipcMain.handle('get-api-key', () => {
-  return process.env.GEMINI_API_KEY;
+  return process.env.API_KEY;
+});
+
+ipcMain.handle('app:launchExternal', (event, relativeAppPath) => {
+    try {
+        const appDir = path.join(__dirname, relativeAppPath);
+
+        console.log(`Attempting to launch external app from: ${appDir}`);
+        
+        // process.execPath is the path to the electron executable
+        const child = spawn(process.execPath, ['.'], {
+            cwd: appDir,
+            detached: true,
+            stdio: 'inherit', // 'inherit' is useful for debugging child process output
+        });
+
+        child.on('error', (err) => {
+            console.error(`Failed to start subprocess for ${appDir}:`, err);
+        });
+        
+        child.on('exit', (code, signal) => {
+            console.log(`External app process exited with code ${code} and signal ${signal}`);
+        });
+
+        child.unref();
+        return true;
+    } catch (error) {
+        console.error('Error launching external app:', error);
+        return false;
+    }
 });
 
 ipcMain.handle('fs:listDirectory', async (event, relativePath) => {

@@ -39,9 +39,19 @@ const App: React.FC = () => {
     };
   };
 
-  const openApp = useCallback((appId: string, initialData?: any) => {
+  const openApp = useCallback(async (appId: string, initialData?: any) => {
     const appDef = APP_DEFINITIONS.find(app => app.id === appId);
     if (!appDef) return;
+
+    if (appDef.isExternal && appDef.externalPath) {
+      if (window.electronAPI?.launchExternalApp) {
+        await window.electronAPI.launchExternalApp(appDef.externalPath);
+      } else {
+        console.warn('External app launch is not supported in this environment.');
+        alert(`This would launch the external app at: ${appDef.externalPath}`);
+      }
+      return;
+    }
 
     if (!initialData) {
       const existingAppInstance = openApps.find(app => app.id === appId && !app.isMinimized);

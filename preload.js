@@ -1,3 +1,4 @@
+
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -17,4 +18,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   renameItem: (item, newName) => ipcRenderer.invoke('fs:renameItem', item, newName),
   moveItem: (sourceItem, destinationPath) => ipcRenderer.invoke('fs:moveItem', sourceItem, destinationPath),
   copyItem: (sourceItem, destinationPath) => ipcRenderer.invoke('fs:copyItem', sourceItem, destinationPath),
+  launchExternalApp: (path) => ipcRenderer.invoke('app:launchExternal', path),
 });

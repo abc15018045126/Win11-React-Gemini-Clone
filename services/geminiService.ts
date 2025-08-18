@@ -1,6 +1,7 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 
-let ai: GoogleGenerativeAI | null = null;
+import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+
+let ai: GoogleGenAI | null = null;
 let isInitializing = false;
 
 // Initialize the GoogleGenAI instance asynchronously
@@ -14,7 +15,7 @@ const initializeAi = async () => {
     const apiKey = await window.electronAPI?.getApiKey();
     
     if (apiKey) {
-      ai = new GoogleGenerativeAI(apiKey);
+      ai = new GoogleGenAI({ apiKey });
     } else {
       console.warn(
         "Gemini API key not found. Please set the API_KEY in your .env file. AI features will be disabled or return mock responses."
@@ -36,14 +37,15 @@ export const generateGeminiResponse = async (prompt: string): Promise<string> =>
   if (!ai) {
     // Fallback or error message if API key is not available
     await new Promise(resolve => setTimeout(resolve, 500)); // Simulate delay
-    return "Gemini API is not configured. Please ensure the API_KEY environment variable is set in your .env file. This is a mock response.";
+    return "Gemini API is not configured. Please ensure the API_KEY environment variable is set. This is a mock response.";
   }
 
   try {
-    const model = ai.getGenerativeModel({ model: "gemini-pro" });
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    return response.text();
+    const response: GenerateContentResponse = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    });
+    return response.text;
   } catch (error) {
     console.error("Error calling Gemini API:", error);
     if (error instanceof Error) {
