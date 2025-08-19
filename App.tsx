@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { ThemeContext, themes } from './components/theme';
 import { OpenApp, AppDefinition, ClipboardItem, FilesystemItem } from './types';
 import { TASKBAR_HEIGHT, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT } from './constants';
 import * as FsService from './services/filesystemService';
@@ -7,7 +8,6 @@ import Taskbar from './components/Taskbar';
 import StartMenu from './components/StartMenu';
 import AppWindow from './components/AppWindow';
 import Desktop from './components/Desktop';
-import { ThemeContext, themes } from './components/theme';
 
 const App: React.FC = () => {
   const [openApps, setOpenApps] = useState<OpenApp[]>([]);
