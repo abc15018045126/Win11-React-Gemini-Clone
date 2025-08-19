@@ -56,6 +56,12 @@ const App: React.FC = () => {
     const appDef = APP_DEFINITIONS.find(app => app.id === appId);
     if (!appDef) return;
 
+    if (appDef.isWebApp && appDef.webAppUrl) {
+      window.open(appDef.webAppUrl, '_blank');
+      setIsStartMenuOpen(false);
+      return;
+    }
+
     if (appDef.isExternal && appDef.externalPath) {
       const args = initialData?.args || [];
       // Prioritize the native Electron API if available

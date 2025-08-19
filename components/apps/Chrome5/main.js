@@ -16,6 +16,7 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1200,
     height: 800,
+    show: false, // Run as a background service
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true

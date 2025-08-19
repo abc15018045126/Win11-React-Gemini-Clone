@@ -66,6 +66,8 @@ export interface AppDefinition {
   isPinnedToTaskbar?: boolean; // To show on taskbar by default
   isExternal?: boolean; // To launch as a separate Electron process
   externalPath?: string; // Path relative to app root for the external app
+  isWebApp?: boolean; // To launch as a URL in the user's default browser
+  webAppUrl?: string; // The URL to launch
 }
 
 export interface OpenApp extends AppDefinition {

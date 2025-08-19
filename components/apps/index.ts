@@ -12,6 +12,7 @@ import { appDefinition as chromeAppDefinition } from './ChromeApp';
 import { appDefinition as chrome2AppDefinition } from './Chrome2App';
 import { appDefinition as chrome3AppDefinition } from './Chrome3App'; // Restored Chrome 3
 import { appDefinition as chrome4AppDefinition } from './Chrome4App';
+import { appDefinition as chrome5AppDefinition } from './Chrome5App';
 import { appDefinition as terminusAppDefinition } from './TerminusApp';
 import { appDefinition as terminusSshAppDefinition } from './TerminusSshApp';
 import { appDefinition as sftpAppDefinition } from './SFTPApp';
@@ -26,6 +27,7 @@ import { appDefinition as themeAppDefinition } from './ThemeApp';
  * 3. Import that definition here and add it to this array.
  */
 export const APP_DEFINITIONS: AppDefinition[] = [
+  chrome5AppDefinition,
   appStoreAppDefinition,
   themeAppDefinition,
   sftpAppDefinition,

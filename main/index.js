@@ -2,6 +2,8 @@
 
 
 
+
+
 const { app, BrowserWindow, session } = require('electron');
 const path = require('path');
 require('dotenv').config();
@@ -14,6 +16,7 @@ const { startTerminusServer } = require('./ws-terminus');
 const { startSftpServer } = require('./ws-sftp');
 const { startChrome3Proxy } = require('./proxy-chrome3'); // Import the new SOCKS5 proxy client
 const { setupHeaderStripping } = require('./header-stripper');
+const { launchExternalAppByPath } = require('./launcher');
 
 function createWindow() {
     const mainWindow = new BrowserWindow({
@@ -50,6 +53,9 @@ app.whenReady().then(() => {
     startSftpServer();
     startChrome3Proxy(); // Start the new SOCKS5 proxy client for Chrome 3
     
+    // Start Chrome 5 backend service as a detached process
+    launchExternalAppByPath('components/apps/Chrome5');
+
     // Apply header stripping to enable loading restricted sites in webviews
     setupHeaderStripping('persist:chrome1');
     setupHeaderStripping('persist:chrome3');
