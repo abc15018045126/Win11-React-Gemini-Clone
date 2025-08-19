@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { ThemeContext, themes } from './components/theme';
 import { OpenApp, AppDefinition, ClipboardItem, FilesystemItem } from './types';
 import { TASKBAR_HEIGHT, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT } from './constants';
+import { ThemeContext, themes } from './components/theme';
 import * as FsService from './services/filesystemService';
 import { APP_DEFINITIONS } from './components/apps';
 import Taskbar from './components/Taskbar';
